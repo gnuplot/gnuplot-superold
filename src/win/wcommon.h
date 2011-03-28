@@ -1,5 +1,5 @@
 /*
- * $Id: wcommon.h,v 1.11 2011/03/13 19:55:29 markisch Exp $
+ * $Id: wcommon.h,v 1.13 2011/03/28 10:09:41 markisch Exp $
  */
 
 /* GNUPLOT - wcommon.h */
@@ -41,14 +41,6 @@
  *   Russell Lang
  */
 
-#ifndef CYGWIN
-#include <shellapi.h>
-#endif
-
-/* Choose between the directory dialog of the windows shell and
-   a modified version of the "file open" dialog */
-#define SHELL_DIR_DIALOG 
-
 #ifndef CLEARTYPE_QUALITY
 #define CLEARTYPE_QUALITY       5
 #endif
@@ -58,6 +50,9 @@
 extern DWORD GetDllVersion(LPCTSTR lpszDllName);
 extern BOOL IsWindowsXPorLater(void);
 extern char *appdata_directory(void);
+extern BOOL cp_changed;
+extern UINT cp_input;
+extern UINT cp_output;
 
 /* wgnuplib.c */
 extern HINSTANCE hdllInstance;
@@ -73,10 +68,6 @@ void LocalFreePtr(void NEAR *ptr);
 LPSTR GetInt(LPSTR str, LPINT pval);
 
 /* wtext.c */
-void UpdateText(LPTW, int);
-void CreateTextClass(LPTW lptw);
-void NewLine(LPTW);
-void TextPutStr(LPTW lptw, LPSTR str);
 void WriteTextIni(LPTW lptw);
 void ReadTextIni(LPTW lptw);
 void DragFunc(LPTW lptw, HDROP hdrop);
