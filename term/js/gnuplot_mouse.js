@@ -1,6 +1,8 @@
 /*
- * $Id: gnuplot_mouse.js,v 1.11 2010/11/25 05:53:49 sfeam Exp $
+ * $Id: gnuplot_mouse.js,v 1.15 2011/04/04 21:40:46 sfeam Exp $
  */
+    gnuplot.mouse_version = "03 April 2011";
+
 // Mousing code for use with gnuplot's 'canvas' terminal driver.
 // The functions defined here assume that the javascript plot produced by
 // gnuplot initializes the plot boundary and scaling parameters.
@@ -278,7 +280,7 @@ gnuplot.zoom_in = function (event)
 	gnuplot.zoom_axis_ymax = gnuplot.zoom_temp_ymin;
 	if (gnuplot.plot_axis_y2min != "none") {
             gnuplot.zoom_axis_y2min = y2;
-	    gnuplot.zoom_axis_y2max = zoom_temp_y2min;
+	    gnuplot.zoom_axis_y2max = gnuplot.zoom_temp_y2min;
 	}
     }
     gnuplot.zoom_axis_width = gnuplot.zoom_axis_xmax - gnuplot.zoom_axis_xmin;
@@ -346,6 +348,9 @@ gnuplot.zoomXY = function(x,y)
 	zoom.y = gnuplot.plot_ybot - (yreal - gnuplot.zoom_axis_ymin) * (gnuplot.plot_height/gnuplot.zoom_axis_height);
   }
 
+  // Report unclipped coords also
+  zoom.xraw = zoom.x; zoom.yraw = zoom.y;
+
   // Limit the zoomed plot to the original plot area
   if (x > gnuplot.plot_xmax) {
     zoom.x = x;
@@ -384,6 +389,26 @@ gnuplot.zoomXY = function(x,y)
 
 gnuplot.zoomW = function (w) { return (w*gnuplot.plot_axis_width/gnuplot.zoom_axis_width); }
 gnuplot.zoomH = function (h) { return (h*gnuplot.plot_axis_height/gnuplot.zoom_axis_height); }
+
+gnuplot.popup_help = function(URL) {
+    if (typeof(URL) != "string") {
+	if (typeof(gnuplot.help_URL) == "string") 
+	    URL = gnuplot.help_URL;
+	else
+	    return;
+    }
+    // FIXME: Placeholder for useful action
+    if (URL != "")
+	window.open (URL,"gnuplot help");
+}
+
+gnuplot.toggle_plot = function(plotid) {
+    if (typeof(gnuplot["hide_"+plotid]) == "unknown")
+    	gnuplot["hide_"+plotid] = false;
+    gnuplot["hide_"+plotid] = !gnuplot["hide_"+plotid];
+    ctx.clearRect(0,0,gnuplot.plot_term_xmax,gnuplot.plot_term_ymax);
+    gnuplot_canvas();
+}
 
 gnuplot.do_hotkey = function(event) {
     keychar = String.fromCharCode(event.charCode ? event.charCode : event.keyCode);
