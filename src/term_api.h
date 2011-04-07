@@ -1,5 +1,5 @@
 /*
- * $Id: term_api.h,v 1.93 2011/02/20 23:17:11 sfeam Exp $
+ * $Id: term_api.h,v 1.95 2011/04/07 03:30:33 sfeam Exp $
  */
 
 /* GNUPLOT - term_api.h */
@@ -131,7 +131,10 @@ typedef enum termlayer {
 	TERM_LAYER_END_GRID,
 	TERM_LAYER_END_TEXT,
 	TERM_LAYER_BEFORE_PLOT,
-	TERM_LAYER_AFTER_PLOT
+	TERM_LAYER_AFTER_PLOT,
+	TERM_LAYER_BEGIN_KEYSAMPLE,
+	TERM_LAYER_END_KEYSAMPLE,
+	TERM_LAYER_RESET_PLOTNO
 } t_termlayer;
 
 typedef struct fill_style_type {
