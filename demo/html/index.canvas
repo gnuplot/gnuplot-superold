@@ -1,5 +1,8 @@
+<!DOCTYPE HTML>
 <html>
-<head><title>Gnuplot demo scripts run through the HTML canvas terminal</title>
+<head>
+<meta charset="UTF-8"> 
+<title>Gnuplot demo scripts run through the HTML canvas terminal</title>
 <link type="text/css" href="gnuplot_demo.css" rel="stylesheet">
 <link type="text/css" href="gnuplot_mouse.css" rel="stylesheet">
 </head>
@@ -18,9 +21,10 @@
 <p>
 The canvas driver for gnuplot was contributed by Bruce Lueckenhoff, and extended by Ethan Merritt (sfeam).
 To view the results you need a browser that supports the HTML 5 'canvas' element.
+</p>
 
 
-<table border="0" width="100%">
+<table width="100%">
 <tbody><tr valign="top">
 
 <td rowspan=2>
@@ -84,9 +88,8 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
     <h4>Binary and Image data </h4>
     <ul>
     <li><a href="binary.html">binary data</a></li>
-    <li><font color=gray>image data - works OK</font></li>
-    <li><font color=gray>&nbsp;&nbsp;but output is huge</font></li>
     <li><a href="rgbalpha.html">RGB + alpha channel</a></li>
+    <li><a href="barchart_art.html">rescaled images</a></li>
     </ul>
 
     <h4>Colors</h4>
@@ -102,7 +105,6 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
     <ul>
     <li><a href="controls.html">control models</a></li>
     <li><a href="discrete.html">discrete&nbsp;contours</a></li>
-    <!--- <li><a href="electron.html">electron</a></li> --->
     <li><a href="finance.html">financial data</a></li>
     <li><a href="scatter.html">non-gridded data</a></li>
     <li><a href="running_avg.html">running averages</a></li>
@@ -112,7 +114,6 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
 
     <h4>Text options</h4>
     <ul>
-    <li><a href="textcolor.html">colored text</a></li>
     <li><a href="enhanced_utf8.html">enhanced text</a></li>
     <li><a href="datastrings.html">string data</a></li>
     <li><a href="cities.html">variable font size</a></li>
@@ -168,11 +169,12 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
 	<tr><td>
 	    <table id="gnuplot_mousebox" class="mbunder">
 	    <tr>
-		<td class="icon" onclick="gnuplot.toggle_grid();"><img src="grid.png" id="gnuplot_grid_icon" align=right alt="#" title="toggle grid"></td>
-		<td class="icon" onclick="gnuplot.unzoom();"><img src="previouszoom.png" id="gnuplot_unzoom_icon" align=right alt="unzoom" title="unzoom"></td>
-		<td class="icon" onclick="gnuplot.rezoom();"><img src="nextzoom.png" id="gnuplot_rezoom_icon" align=right alt="rezoom" title="rezoom"></td>
+		<td class="icon" onclick="gnuplot.toggle_grid();"><img src="grid.png" id="gnuplot_grid_icon" alt="#" title="toggle grid"></td>
+		<td class="icon" onclick="gnuplot.unzoom();"><img src="previouszoom.png" id="gnuplot_unzoom_icon" alt="unzoom" title="unzoom"></td>
+		<td class="icon" onclick="gnuplot.rezoom();"><img src="nextzoom.png" id="gnuplot_rezoom_icon" alt="rezoom" title="rezoom"></td>
 		<td class="icon"><a href="canvas_help.html">
 		                 <img src="help.png" align=right alt="help" title="help"></a></td>
+		<td class="icon" onclick='gnuplot.toggle_plot("gnuplot_canvas_plot_1")'>&#10112;</td>
 	        <td class="mb0">x</td>
 	        <td class="mb1"><span id="gnuplot_canvas_x">&nbsp;</span></td>
 	        <td class="mb0">y</td>
@@ -181,6 +183,7 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
 	<br>Note:
 	<ul><li>Zoom using right (Firefox, Konqueror) or center (Opera, Safari) mouse button
 	    <li>Mark point using left mouse button
+	    <li>&#10112; toggles first plot on/off&nbsp;&nbsp;  # toggles grid on/off
 	</ul>
 	</td></tr>
 	</table>
@@ -189,15 +192,14 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
 </td></tr>
 
 </tbody></table>
-</p>
 <hr>
 
 
-<table border="0" width="100%">
+<table width="100%">
 <tbody><tr valign="top">
 
     <td>
-    <i>This page created by Ethan Merritt<br>Nov 2010</i>
+    <i>This page created by Ethan Merritt<br>April 2011</i>
     </td>
 
     <td>
