@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: svg.trm,v 1.108 2011/03/11 22:20:59 sfeam Exp $
+ * $Id: svg.trm,v 1.118 2011/04/13 23:59:12 sfeam Exp $
  */
 
 /*------------------------------------------------------------------------------------------------------------------------------------
@@ -29,16 +29,26 @@
 
 /*
  * Additional code for gnuplot versions 4.2 and 4.3
+ * Ethan Merritt  <merritt@u.washington.edu>
  *
  *   Tweaked code for compatibility with Sodipodi svg viewer/editor.
  *   Added enhanced text support.
  *   Additional line properties.
  *   Increase resolution by adding a coordinate scale factor.
- *   CODDLE_NONCOMPLIANT_VIEWERS
  *   Support dashed lines, TC_* color model.
  *   Change path markup from    style='attribute: foo'  to   attribute='foo'
  *
+ * Additional code for gnuplot versions 4.5
  * Ethan Merritt  <merritt@u.washington.edu>
+ *
+ *   Wrap each plot in a named group <g id="name_plot_%02d">
+ *   Set the name using 'set term svg name "foo"'
+ *   Background option
+ *   Bitmap image support by creating and linking to external png files
+ *   Mouse-tracking with coordinate readout.
+ *
+ * Contributed by <forgery69@users.sf.net>
+ *   Javascript code to toggle plots on/off
  */
 
 #include "driver.h"
@@ -77,6 +87,10 @@ TERM_PUBLIC void ENHsvg_writec __PROTO((int));
 
 TERM_PUBLIC void SVG_path __PROTO((int p));
 
+#ifdef WRITE_PNG_IMAGE
+TERM_PUBLIC void SVG_image __PROTO((unsigned m, unsigned n, coordval *image, gpiPoint *corner, t_imagecolor color_mode));
+#endif
+
 #define SVG_SCALE	10.
 #define Y(y) ((float)((int)term->ymax - (int)y) / SVG_SCALE)
 #define X(x) ((float)(x) / SVG_SCALE)
@@ -95,6 +109,9 @@ static unsigned char SVG_green = 0;
 static unsigned char SVG_blue = 0;
 static unsigned char SVG_color_mode = TC_DEFAULT;
 static char *SVG_linecolor = NULL;
+static char *SVG_name = NULL;
+static char *SVG_scriptdir = NULL;
+static TBOOLEAN SVG_mouseable = FALSE;
 
 static TBOOLEAN SVG_groupFilledIsOpen = FALSE; /* open pm3d group flag*/
 
@@ -132,6 +149,10 @@ static struct SVG_PEN SVG_pens[16];	/* pen descriptors*/
 static int SVG_fillPattern = -1; /* active fill pattern (-1 == undefined) */
 static unsigned int SVG_fillPatternIndex = 0;
 static int SVG_background = -1;
+static int SVG_imageno = 0;
+static int SVG_plotno = 0;
+static TBOOLEAN SVG_gridline = FALSE;
+static TBOOLEAN SVG_hasgrid = FALSE;
 
 static int SVG_fontAscent = 0;	/* estimated current font ascent*/
 static int SVG_fontDescent = 0;	/* estimated current font descent*/
@@ -161,7 +182,6 @@ static void SVG_load_fontfile __PROTO((char *fontfile));
 static int ENHsvg_string_state = 0;
 static double ENHsvg_x_offset = 0;
 static TBOOLEAN ENHsvg_preserve_spaces = FALSE;
-#define CODDLE_NONCOMPLIANT_VIEWERS 1	/* Use pt rather than em spacing */
 
 /* Support for dashed lines */
 #define SVG_dashtypes 5
@@ -251,7 +271,11 @@ SVG_PathOpen ()
 	if (SVG_dashed && SVG_LineType % SVG_dashtypes > 0)
 	    fprintf(gpoutfile, "stroke-dasharray='%s' ",
 	 	    SVG_dashpattern[SVG_LineType % SVG_dashtypes]);
-	
+
+	/* Mark grid lines so that we can toggle them on/off */
+	if (SVG_gridline)
+	    fprintf(gpoutfile, "class=\"gridline\" ");
+
 	fputs (" d='", gpoutfile);
 
 	SVG_pathIsOpen = TRUE;
@@ -266,7 +290,8 @@ SVG_PathClose ()
 {
     if (SVG_pathIsOpen) {
 	SVG_GroupFilledClose();
-	fputs ("'></path>\n", gpoutfile);
+	/* FIXME: HORRIBLE KLUDGE TO WORK AROUNG BUG IN FIREFOX V3.x */
+	fprintf(gpoutfile," h0.01'/>");
 	SVG_path_count = 0;
 	SVG_pathIsOpen = FALSE;
     }
@@ -454,6 +479,29 @@ SVG_options ()
 	    continue;
 	}
 
+	if (equals(c_token, "mouse") || almost_equals(c_token, "mous$ing")) {
+	    c_token++;
+	    SVG_mouseable = TRUE;
+	    continue;
+	}
+
+	if (equals(c_token, "name")) {
+	    c_token++;
+	    SVG_name = try_to_get_string();
+	    if (!SVG_name)
+		    int_error(c_token,"expecting a plot name");
+	    if (SVG_name[strspn(SVG_name,
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_1234567890")])
+		    int_error(c_token-1,"illegal javascript variable name");
+	    continue;
+	}
+
+	if (equals(c_token, "jsdir")) {
+	    c_token++;
+	    SVG_scriptdir = try_to_get_string();
+	    continue;
+	}
+
 	if (almost_equals(c_token, "d$ynamic")) {
 	    c_token++;
 	    SVG_fixed_size = FALSE;
@@ -512,7 +560,7 @@ SVG_options ()
 
 	    fontfile_name = try_to_get_string();
 	    if (!fontfile_name)
-                int_error(c_token, "Font filename expected");
+		int_error(c_token, "Font filename expected");
 	    gp_expand_tilde(&fontfile_name);
 #if defined(PIPES)
 	    if ( *fontfile_name == '<' ) {
@@ -523,7 +571,7 @@ SVG_options ()
 	    if (!SVG_embedded_font)
 		int_error(c_token, "Font file '%s' not found", fontfile_name);
 
-            continue;
+	    continue;
 	}
 
 	if (almost_equals(c_token, "linew$idth") || equals(c_token, "lw")) {
@@ -573,9 +621,19 @@ SVG_options ()
     /* Save options back into options string in normalized format */
     sprintf(term_options, "size %d,%d%s %s fname '%s'  fsize %g ",
 	    (int)(SVG_xSize/SVG_SCALE), (int)(SVG_ySize/SVG_SCALE),
-        SVG_fixed_size ? " fixed": " dynamic",
+	SVG_fixed_size ? " fixed": " dynamic",
 	term->put_text == ENHsvg_put_text ? "enhanced" : "",
-        SVG_fontNameCur, SVG_fontSizeCur);
+	SVG_fontNameCur, SVG_fontSizeCur);
+
+    if (SVG_mouseable) {
+	sprintf(term_options + strlen(term_options),
+	    "mousing ");
+    }
+
+    if (SVG_name) {
+	sprintf(term_options + strlen(term_options),
+	    "name \"%s\" ", SVG_name);
+    }
 
     if (SVG_embedded_font) {
 	sprintf(term_options + strlen(term_options),
@@ -612,6 +670,13 @@ SVG_local_reset()
     if (SVG_embedded_font)
 	free(SVG_embedded_font);
     SVG_embedded_font = NULL;
+    SVG_mouseable = FALSE;
+    free(SVG_name);
+    SVG_name = NULL;
+    free(SVG_scriptdir);
+    SVG_scriptdir = NULL;
+    SVG_gridline = FALSE;
+    SVG_hasgrid = FALSE;
 }
 
 /*------------------------------------------------------------------------------------------------------------------------------------
@@ -620,6 +685,7 @@ SVG_local_reset()
 TERM_PUBLIC void
 SVG_init ()
 {
+    int len;
     double stroke_width;
     char *svg_encoding = "";
 
@@ -711,12 +777,15 @@ SVG_init ()
 	     " \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">\n"
 	     "<svg ", svg_encoding);
 
+    if (SVG_mouseable)
+	fprintf (gpoutfile, "onload=\"if (typeof(gnuplot_svg)!='undefined') gnuplot_svg.Init(evt)\" ");
+
     if (SVG_fixed_size)
-        fprintf (gpoutfile, "width=\"%u\" height=\"%u\" ",
+	fprintf (gpoutfile, "\n width=\"%u\" height=\"%u\" ",
 		 (unsigned int) (term->xmax / SVG_SCALE),
 		 (unsigned int) (term->ymax / SVG_SCALE));
 
-    fprintf (gpoutfile, "viewBox=\"0 0 %u %u\"\n",
+    fprintf (gpoutfile, "\n viewBox=\"0 0 %u %u\"\n",
 	     (unsigned int) (term->xmax / SVG_SCALE),
 	     (unsigned int) (term->ymax / SVG_SCALE));
     fprintf (gpoutfile, " xmlns=\"http://www.w3.org/2000/svg\"\n");
@@ -731,7 +800,80 @@ SVG_init ()
 	     "<desc>Produced by GNUPLOT %s patchlevel %s </desc>\n\n",
 	     gnuplot_version, gnuplot_patchlevel);
 
+/*
+ * FIXME: This code could be shared with canvas.trm
+ *	  Figure out the full URL to use for xlink:href="gnuplot_svg.js"
+ */
+    if (SVG_scriptdir == NULL) {
+	char *svg_default_jsdir = "";
+#ifdef GNUPLOT_JS_DIR
+# if defined(_Windows)
+	/* retrieve path relative to the gnuplot executable,
+	 * whose path is in szModuleName (winmain.c) */
+	/* EAM FIXME: memory leak */
+	svg_default_jsdir = gp_alloc(strlen((char*) szPackageDir)
+			+ strlen(GNUPLOT_JS_DIR) + 2, "jsdir");
+	strcpy(svg_default_jsdir, (char*) szPackageDir);
+	len = strlen(svg_default_jsdir);
+	if (*svg_default_jsdir && svg_default_jsdir[len-1] != '\\' && svg_default_jsdir[len-1] != '/')
+	    strcat(svg_default_jsdir, "\\");
+	/* GNUPLOT_JS_DIR is _relative_ path */
+	strcat(svg_default_jsdir, GNUPLOT_JS_DIR);
+# else /* !_Windows */
+	/* use hardcoded _absolute_ path */
+	svg_default_jsdir = GNUPLOT_JS_DIR;
+# endif
+#endif /* GNUPLOT_JS_DIR */
+	SVG_scriptdir = gp_strdup(svg_default_jsdir);
+    }
+
+#if !defined(VMS)
+    len = strlen(SVG_scriptdir);
+# if defined(_Windows)
+    if (*SVG_scriptdir && SVG_scriptdir[len-1] != '\\' && SVG_scriptdir[len-1] != '/') {
+	SVG_scriptdir = gp_realloc(SVG_scriptdir, len+2, "jsdir");
+	if (SVG_scriptdir[len-1] == '\\') /* use backslash if used in jsdir, otherwise slash */
+	    strcat(SVG_scriptdir,"\\");
+	else
+	    strcat(SVG_scriptdir,"/");
+    }
+# else
+    if (*SVG_scriptdir && SVG_scriptdir[len-1] != '/') {
+	SVG_scriptdir = gp_realloc(SVG_scriptdir, len+2, "jsdir");
+	strcat(SVG_scriptdir,"/");
+    }
+# endif
+#endif
+
+    if (SVG_mouseable) {
+	/* This is sufficient to support toggling plots on/off */
+	fprintf(gpoutfile,"<script type=\"text/javascript\" xlink:href=\"%sgnuplot_svg.js\"/>\n",
+	    SVG_scriptdir);
+    }
+
+    if (SVG_mouseable) {   /* FIXME: Should only do this for 2D plots */
+	/* This is extra code to support tracking the mouse coordinates */
+	fprintf(gpoutfile,"\n<!-- Tie mousing to entire bounding box of the plot -->\n");
+	fprintf(gpoutfile,"<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\"",
+		0, 0, (int)(term->xmax/SVG_SCALE), (int)(term->ymax/SVG_SCALE));
+	fprintf(gpoutfile," fill=\"#%06x\" stroke=\"black\" stroke-width=\"1\"\n",
+		SVG_background>0 ? SVG_background : 0xffffff);
+	fprintf(gpoutfile,"onclick=\"gnuplot_svg.toggleCoordBox(evt)\"  onmousemove=\"gnuplot_svg.moveCoordBox(evt)\"/>\n");
+	fprintf(gpoutfile,"\n<!-- Also track mouse when it is on a plot element -->\n");
+	fprintf(gpoutfile,"<g id=\"gnuplot_canvas\" onclick=\"gnuplot_svg.toggleCoordBox(evt)\" onmousemove=\"gnuplot_svg.moveCoordBox(evt)\">\n\n");
+    } else {
+	fprintf(gpoutfile,"<g id=\"gnuplot_canvas\">\n\n");
+	fprintf(gpoutfile,"<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\"",
+		0, 0, (int)(term->xmax/SVG_SCALE), (int)(term->ymax/SVG_SCALE));
+	if (SVG_background > 0)
+		fprintf(gpoutfile," fill=\"#%06x\"", SVG_background);
+	else
+		fprintf(gpoutfile," fill=\"none\"");
+	fprintf(gpoutfile,"/>\n");
+    }
+
     /* Start prologue section of output file, and load fonts if requested */
+
     fprintf(gpoutfile,"<defs>\n");
     if (SVG_embedded_font)
 	SVG_load_fontfile(SVG_embedded_font);
@@ -788,10 +930,6 @@ SVG_init ()
 	     , stroke_width
 	     , stroke_width
 	);
-
-    /* Fill with background color */
-    if (SVG_background >=0)
-	SVG_fillbox(FS_EMPTY,0,0,term->xmax,term->ymax);
 }
 
 /*------------------------------------------------------------------------------------------------------------------------------------
@@ -823,6 +961,85 @@ SVG_text ()
 {
     SVG_PathClose ();
     SVG_GroupClose ();
+
+    if (SVG_mouseable) {
+	struct udvt_entry *udv;
+	char *name = (SVG_name) ? SVG_name : "gnuplot";
+
+	fprintf(gpoutfile, "\n<script type=\"text/javascript\"><![CDATA[\n");
+	fprintf(gpoutfile, "// plot boundaries and axis scaling information for mousing \n");
+	fprintf(gpoutfile, "gnuplot_svg.plot_term_xmax = %d;\n", (int)(term->xmax / CANVAS_OVERSAMPLE));
+	fprintf(gpoutfile, "gnuplot_svg.plot_term_ymax = %d;\n", (int)(term->ymax / CANVAS_OVERSAMPLE));
+	fprintf(gpoutfile, "gnuplot_svg.plot_xmin = %.1f;\n", (double)plot_bounds.xleft / CANVAS_OVERSAMPLE);
+	fprintf(gpoutfile, "gnuplot_svg.plot_xmax = %.1f;\n", (double)plot_bounds.xright / CANVAS_OVERSAMPLE);
+	fprintf(gpoutfile, "gnuplot_svg.plot_ybot = %.1f;\n", (double)(term->ymax-plot_bounds.ybot) / CANVAS_OVERSAMPLE);
+	fprintf(gpoutfile, "gnuplot_svg.plot_ytop = %.1f;\n", (double)(term->ymax-plot_bounds.ytop) / CANVAS_OVERSAMPLE);
+	fprintf(gpoutfile, "gnuplot_svg.plot_width = %.1f;\n", (double)(plot_bounds.xright - plot_bounds.xleft) / CANVAS_OVERSAMPLE);
+	fprintf(gpoutfile, "gnuplot_svg.plot_height = %.1f;\n", (double)(plot_bounds.ytop - plot_bounds.ybot) / CANVAS_OVERSAMPLE);
+
+	/* Get true axis ranges as used in the plot */
+	update_gpval_variables(1);
+
+#define	MOUSE_PARAM( GP_NAME, js_NAME ) \
+	if ((udv = add_udv_by_name(GP_NAME))) { \
+	    if (udv->udv_value.type == INTGR)   \
+		fprintf(gpoutfile, "gnuplot_svg.%s = %d;\n", \
+			js_NAME, udv->udv_value.v.int_val); \
+	    else if (udv->udv_value.type == CMPLX) \
+		fprintf(gpoutfile, "gnuplot_svg.%s = %g;\n", \
+			js_NAME, udv->udv_value.v.cmplx_val.real); \
+	}
+	MOUSE_PARAM("GPVAL_X_MIN", "plot_axis_xmin");
+	MOUSE_PARAM("GPVAL_X_MAX", "plot_axis_xmax");
+	MOUSE_PARAM("GPVAL_Y_MIN", "plot_axis_ymin");
+	MOUSE_PARAM("GPVAL_Y_MAX", "plot_axis_ymax");
+
+	fprintf(gpoutfile, "gnuplot_svg.polar_mode = %s;\n",
+		polar ? "true" : "false");
+	if (polar)
+	    fprintf(gpoutfile, "gnuplot_svg.plot_axis_rmin = %g;\n",
+		(R_AXIS.autoscale & AUTOSCALE_MIN) ? 0.0 : R_AXIS.set_min);
+
+	if ((axis_array[SECOND_X_AXIS].ticmode & TICS_MASK) != NO_TICS) {
+	    MOUSE_PARAM("GPVAL_X2_MIN", "plot_axis_x2min");
+	    MOUSE_PARAM("GPVAL_X2_MAX", "plot_axis_x2max");
+	} else
+	    fprintf(gpoutfile, "gnuplot_svg.plot_axis_x2min = \"none\"\n");
+	if ((axis_array[SECOND_Y_AXIS].ticmode & TICS_MASK) != NO_TICS) {
+	    MOUSE_PARAM("GPVAL_Y2_MIN", "plot_axis_y2min");
+	    MOUSE_PARAM("GPVAL_Y2_MAX", "plot_axis_y2max");
+	} else
+	    fprintf(gpoutfile, "gnuplot_svg.plot_axis_y2min = \"none\"\n");
+#undef MOUSE_PARAM
+
+	fprintf(gpoutfile, "gnuplot_svg.plot_logaxis_x = %d;\n",
+		axis_array[FIRST_X_AXIS].log ? 1: 0);
+	fprintf(gpoutfile, "gnuplot_svg.plot_logaxis_y = %d;\n",
+		axis_array[FIRST_Y_AXIS].log ? 1: 0);
+	if (polar)
+	    fprintf(gpoutfile, "gnuplot_svg.plot_logaxis_r = %d;\n",
+		axis_array[POLAR_AXIS].log ? 1: 0);
+
+	fprintf(gpoutfile,"]]>\n</script>\n");
+    } /* End of section writing out variables for mousing */
+
+    /* Close off the group with id=gnuplot_canvas that wraps the entire plot */
+    fprintf(gpoutfile,"</g>\n");
+
+    /* Now create a text element to hold the mouse-tracking text. */
+    /* It comes _after_ the plot group so that it floats on top.  */
+    if (SVG_mouseable) {
+	fprintf(gpoutfile,"\n  <text id=\"coord_text\" text-anchor=\"start\" pointer-events=\"none\"\n");
+	fprintf(gpoutfile,"  font-size=\"12\" font-family=\"Arial\"\n");
+	fprintf(gpoutfile,"  visibility=\"hidden\"> </text>\n");
+    }
+
+    /* If there were any grid lines in this plot, add a button to toggle them */
+    if (SVG_mouseable && SVG_hasgrid) {
+	fprintf(gpoutfile,"\n  <image x='10' y='%d' width='16' height='16' xlink:href='grid.png'\n",
+	(int)(term->ymax/SVG_SCALE)-26);
+	fprintf(gpoutfile,"    onclick='gnuplot_svg.toggleGrid();'/>\n");
+    }
 }
 
 /*------------------------------------------------------------------------------------------------------------------------------------
@@ -1121,7 +1338,7 @@ SVG_set_color(t_colorspec *colorspec)
     } else if (colorspec->type == TC_FRAC)
 	rgb255maxcolors_from_gray( colorspec->value, &rgb255 );
     else if (colorspec->type == TC_RGB) {
-	rgb255.r = colorspec->lt >> 16;
+	rgb255.r = colorspec->lt >> 16 & 0xff;
 	rgb255.g = colorspec->lt >> 8 & 0xff;
 	rgb255.b = colorspec->lt & 0xff;
     } else
@@ -1194,7 +1411,7 @@ SVG_filled_polygon(int points, gpiPoint* corners)
 
     fputs(" points = '", gpoutfile);
     for (i = 0; i < points; i++)
-        fprintf(gpoutfile, "%.1f,%.1f%s",
+	fprintf(gpoutfile, "%.1f,%.1f%s",
 		X(corners[i].x), Y(corners[i].y),
 		i % 16 == 15 ? "\n" : " ");
     fputs("'/>\n", gpoutfile);
@@ -1206,7 +1423,7 @@ SVG_filled_polygon(int points, gpiPoint* corners)
 TERM_PUBLIC void
 SVG_layer(t_termlayer syncpoint)
 {
-    static int plotno = 0;
+    char *name = NULL;
 
     /* We must ignore all syncpoints that we don't recognize */
     switch (syncpoint) {
@@ -1217,22 +1434,83 @@ SVG_layer(t_termlayer syncpoint)
 	case TERM_LAYER_BEFORE_PLOT:
 		SVG_PathClose();
 		SVG_GroupClose();
-		fprintf(gpoutfile, "\t<a xlink:title=\"Plot #%d\">\n", ++plotno);
+		++SVG_plotno;
+		name = (SVG_name) ? SVG_name : "gnuplot";
+		fprintf(gpoutfile, "\t<g id=\"%s_plot_%d\" ", name,SVG_plotno);
+		fprintf(gpoutfile, "><title>%s_plot_%d</title>\n", name,SVG_plotno);
 		SVG_LineType = LT_UNDEFINED; /* Force a new group on next stroke */
 		break;
 
 	case TERM_LAYER_AFTER_PLOT:
 		SVG_PathClose();
 		SVG_GroupClose();
-		fprintf(gpoutfile, "\t</a>\n");
+		fprintf(gpoutfile, "\t</g>\n");
 		SVG_LineType = LT_UNDEFINED; /* Force a new group on next stroke */
 		break;
 
+	case TERM_LAYER_BEGIN_GRID:
+		SVG_gridline = TRUE;
+		SVG_hasgrid = TRUE;
+		break;
+
+	case TERM_LAYER_END_GRID:
+		SVG_gridline = FALSE;
+		break;
+
+	case TERM_LAYER_BEGIN_KEYSAMPLE:
+		if (SVG_mouseable) {
+		    SVG_PathClose();
+		    SVG_GroupFilledClose();
+		    name = (SVG_name) ? SVG_name : "gnuplot";
+		    fprintf(gpoutfile, "\t<g visibility=\"visible\" ");
+		    fprintf(gpoutfile,
+			"onclick=\"gnuplot_svg.toggleVisibility(evt,'%s_plot_%d')\"",
+			name,SVG_plotno);
+		    fprintf(gpoutfile, ">\n");
+		}
+		break;
+
+	case TERM_LAYER_END_KEYSAMPLE:
+		if (SVG_mouseable) {
+		    SVG_PathClose();
+		    SVG_GroupFilledClose();
+		    fprintf(gpoutfile, "\t</g>\n");
+		    SVG_LineType = LT_UNDEFINED;
+		}
+		break;
+
 	case TERM_LAYER_RESET:
-		plotno = 0;
+	case TERM_LAYER_RESET_PLOTNO:
+		SVG_plotno = 0;
 		break;
     }
 }
+
+/*------------------------------------------------------------------------------------------------------------------------------------
+	SVG_image
+------------------------------------------------------------------------------------------------------------------------------------*/
+#ifdef WRITE_PNG_IMAGE
+TERM_PUBLIC void
+SVG_image (unsigned m, unsigned n, coordval *image, gpiPoint *corner, t_imagecolor color_mode) 
+{
+    char *image_file;
+    char *base_name = SVG_name ? SVG_name : "gp";
+   
+    /* Write the image to a png file */
+    image_file = gp_alloc(strlen(base_name)+16, "SVG_image");
+    sprintf(image_file, "%s_image_%02d.png", base_name, ++SVG_imageno);
+    write_png_image (m, n, image, color_mode, image_file);
+
+    /* Map it onto the terminals coordinate system. */
+    fprintf(gpoutfile, "<image x='%.1f' y='%.1f' width='%.1f' height='%.1f' preserveAspectRatio='none' ",
+	X(corner[0].x), Y(corner[0].y), 
+	X(corner[1].x) - X(corner[0].x), Y(corner[1].y) - Y(corner[0].y));
+
+    fprintf(gpoutfile, "xlink:href='%s_image_%02d.png'/>;\n",
+	base_name, SVG_imageno);
+
+}
+#endif
 
 
 /* Enhanced text mode support starts here */
@@ -1258,13 +1536,8 @@ ENHsvg_OPEN(
      */
     switch (overprint) {
     case 2:
-#ifdef CODDLE_NONCOMPLIANT_VIEWERS
-	fprintf(gpoutfile, "<tspan dx=\"-%.1fpt\" dy=\"%.1fpt\">", 
-		0.3 * ENHsvg_charcount * 1.1*SVG_fontSizeCur, ENHsvg_base-base);
-#else
 	fprintf(gpoutfile, "<tspan dx=\"-%.1fem\" dy=\"%.1fpt\">", 
-		0.3 * ENHsvg_charcount, ENHsvg_base-base);
-#endif
+		0.25 * ENHsvg_charcount, ENHsvg_base-base);
 	ENHsvg_base = base;
 	ENHsvg_x_offset = 0.0;
 	enhanced_cur_text = enhanced_text;
@@ -1276,7 +1549,7 @@ ENHsvg_OPEN(
 	return;
     case 4:
 	/* Defer setting the offsets until the text arrives */
-	ENHsvg_x_offset = -0.6 * ENHsvg_charcount;
+	ENHsvg_x_offset = -0.5 * ENHsvg_charcount;
 	ENHsvg_base -= base;
 	ENHsvg_charcount = 0;
 	return;
@@ -1300,12 +1573,7 @@ ENHsvg_OPEN(
 	    fprintf(gpoutfile, " font-size=\"%.1fpt\"", SVG_fontSizeCur);
 	}
 	if (ENHsvg_x_offset != 0) {
-#ifdef CODDLE_NONCOMPLIANT_VIEWERS
-	    fprintf(gpoutfile, " dx=\"%.2fpt\"",
-				ENHsvg_x_offset * 1.1*SVG_fontSizeCur);
-#else
 	    fprintf(gpoutfile, " dx=\"%.2fem\"", ENHsvg_x_offset);
-#endif
 	    ENHsvg_x_offset = 0.0;
 	}
 	if (ENHsvg_base != base) {
@@ -1329,7 +1597,7 @@ ENHsvg_FLUSH()
     if (ENHsvg_opened_string) {
 	ENHsvg_opened_string = FALSE;
 	*enhanced_cur_text = '\0';
-	fprintf(gpoutfile, "%s</tspan>\n\t\t", enhanced_text);
+	fprintf(gpoutfile, "%s</tspan>", enhanced_text);
     }
 }
 
@@ -1507,7 +1775,6 @@ SVG_path(int p)
 
 #undef Y
 #undef X
-#undef CODDLE_NONCOMPLIANT_VIEWERS
 
 #endif /* TERM_BODY */
 
@@ -1528,7 +1795,11 @@ TERM_TABLE_START (svg_driver)
    SVG_previous_palette,
    SVG_set_color,
    SVG_filled_polygon
+#ifdef WRITE_PNG_IMAGE
+    , SVG_image
+#else
     , NULL	/* image */
+#endif
    , ENHsvg_OPEN, ENHsvg_FLUSH, ENHsvg_writec
    , SVG_layer	/* layer */
    , SVG_path 	/* path */
@@ -1556,6 +1827,7 @@ START_HELP(svg)
 "       set terminal svg {size <x>,<y> {|fixed|dynamic}}",
 "                        {{no}enhanced}",
 "                        {fname \"<font>\"} {fsize <fontsize>}",
+"                        {mouse} {jsdir <dirname>} {name <plotname>}",
 "                        {font \"<fontname>{,<fontsize>}\"}",
 "                        {fontfile <filename>}",
 "                        {rounded|butt} {solid|dashed} {linewidth <lw>}",
@@ -1576,6 +1848,14 @@ START_HELP(svg)
 " and other formatting commands to be embedded in labels and other text",
 " strings. The enhanced text mode syntax is shared with other gnuplot",
 " terminal types. See `enhanced` for more details.",
+"",
+" The `mouse` option tells gnuplot to include a link to a javascript",
+" module that supports toggling individual plots on/off by clicking",
+" on the corresponding key entry. By default this script is taken from",
+" a local directory, usually /usr/local/share/gnuplot/<version>/js.",
+" You can change this by using the `jsdir` option to specify either a",
+" different local directory or a general URL. The latter is usually",
+" appropriate if you are embedding the svg into a web page.",
 "",
 " SVG allows you to embed fonts directly into an SVG document, or to",
 " provide a hypertext link to the desired font. The `fontfile` option",
