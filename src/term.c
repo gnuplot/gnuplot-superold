@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: term.c,v 1.215 2011/02/20 23:17:11 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: term.c,v 1.218 2011/04/16 11:15:55 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - term.c */
@@ -84,11 +84,11 @@ static char *RCSid() { return RCSid("$Id: term.c,v 1.215 2011/02/20 23:17:11 sfe
 #include "help.h"
 #include "plot.h"
 #include "tables.h"
+#include "getcolor.h"
 #include "term.h"
 #include "util.h"
 #include "version.h"
 #include "misc.h"
-#include "getcolor.h"
 
 #ifndef NO_BITMAP_SUPPORT
 #include "bitmap.h"
@@ -224,6 +224,7 @@ static void UP_redirect __PROTO((int called));
 static int null_text_angle __PROTO((int ang));
 static int null_justify_text __PROTO((enum JUSTIFY just));
 static int null_scale __PROTO((double x, double y));
+static void null_layer __PROTO((t_termlayer layer));
 static void options_null __PROTO((void));
 static void UNKNOWN_null __PROTO((void));
 static void MOVE_null __PROTO((unsigned int, unsigned int));
@@ -298,11 +299,6 @@ static struct {
     double title_height;   /* fractional height reserved for title */
 } mp_layout = MP_LAYOUT_DEFAULT;
 
-
-#ifdef __ZTC__
-char *ztc_init();
-/* #undef TGIF */
-#endif
 
 #ifdef VMS
 char *vms_init();
@@ -570,8 +566,7 @@ term_start_plot()
     }
 
     /* Sync point for epslatex text positioning */
-    if (term->layer)
-	(term->layer)(TERM_LAYER_RESET);
+    (*term->layer)(TERM_LAYER_RESET);
 
     /* Because PostScript plots may be viewed out of order, make sure */
     /* Each new plot makes no assumption about the previous palette.  */
@@ -595,8 +590,7 @@ term_end_plot()
 	return;
 
     /* Sync point for epslatex text positioning */
-    if (term->layer)
-	(term->layer)(TERM_LAYER_END_TEXT);
+    (*term->layer)(TERM_LAYER_END_TEXT);
     
     if (!multiplot) {
 	FPRINTF((stderr, "- calling term->text()\n"));
@@ -1445,6 +1439,12 @@ null_scale(double x, double y)
 }
 
 static void
+null_layer(t_termlayer layer)
+{
+    (void) layer;               /* avoid -Wunused warning */
+}
+
+static void
 options_null()
 {
     term_options[0] = '\0';     /* we have no options */
@@ -1665,6 +1665,8 @@ change_term(const char *origname, int length)
 	term->pointsize = do_pointsize;
     if (term->linewidth == 0)
 	term->linewidth = null_linewidth;
+    if (term->layer == 0)
+	term->layer = null_layer;
     if (term->tscale <= 0)
 	term->tscale = 1.0;
 
@@ -1711,10 +1713,6 @@ init_terminal()
     if (gnuterm != (char *) NULL) {
 	term_name = gnuterm;
     } else {
-
-#ifdef __ZTC__
-	term_name = ztc_init();
-#endif
 
 #ifdef VMS
 	term_name = vms_init();
@@ -1848,47 +1846,6 @@ init_terminal()
 }
 
 
-#ifdef __ZTC__
-char *
-ztc_init()
-{
-    int g_mode;
-    char *term_name = NULL;
-
-    g_mode = fg_init();
-
-    switch (g_mode) {
-    case FG_NULL:
-	fputs("Graphics card not detected or not supported.\n", stderr);
-	exit(1);
-    case FG_HERCFULL:
-	term_name = "hercules";
-	break;
-    case FG_EGAMONO:
-	term_name = "egamono";
-	break;
-    case FG_EGAECD:
-	term_name = "egalib";
-	break;
-    case FG_VGA11:
-	term_name = "vgamono";
-	break;
-    case FG_VGA12:
-	term_name = "vgalib";
-	break;
-    case FG_VESA6A:
-	term_name = "svgalib";
-	break;
-    case FG_VESA5:
-	term_name = "ssvgalib";
-	break;
-    }
-    fg_term();
-    return (term_name);
-}
-#endif /* __ZTC__ */
-
-
 /*
  * Unixplot can't really write to gpoutfile--it wants to write to stdout.
  * This is normally ok, but the original design of gnuplot gives us
@@ -1967,8 +1924,7 @@ test_term()
 	key_entry_height = t->v_char;
 
     /* Sync point for epslatex text positioning */
-    if (term->layer)
-	(term->layer)(TERM_LAYER_FRONTTEXT);
+    (*t->layer)(TERM_LAYER_FRONTTEXT);
 
     /* border linetype */
     (*t->linewidth) (1.0);
