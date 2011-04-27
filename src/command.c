@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: command.c,v 1.207 2011/03/13 19:55:29 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: command.c,v 1.210 2011/04/27 17:17:17 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - command.c */
@@ -988,7 +988,7 @@ if_command()
 	    while (!END_OF_COMMAND) {
 		++c_token;
 	    }
-	    if (++c_token < num_tokens && (equals(c_token, "else"))) {
+	    if (equals(++c_token, "else")) {
 		/* break if an "else" was found */
 		if_condition = FALSE;
 		--c_token; /* go back to ';' */
@@ -1835,18 +1835,10 @@ static int
 changedir(char *path)
 {
 #if defined(MSDOS)
-# if defined(__ZTC__)
-    unsigned dummy;		/* it's a parameter needed for dos_setdrive */
-# endif
-
     /* first deal with drive letter */
 
     if (isalpha(path[0]) && (path[1] == ':')) {
 	int driveno = toupper(path[0]) - 'A';	/* 0=A, 1=B, ... */
-
-# if defined(__ZTC__)
-	(void) dos_setdrive(driveno + 1, &dummy);
-# endif
 
 # if (defined(MSDOS) && defined(__EMX__)) || defined(__MSC__)
 	(void) _chdrive(driveno + 1);
@@ -2147,8 +2139,13 @@ help_command()
     c_token++;
 #ifdef WITH_HTML_HELP
     /* open help file if necessary */
-    if (HtmlHelp(textwin.hWndParent, winhelpname, HH_DISPLAY_TOPIC, (DWORD_PTR)NULL) == NULL) {
-        fprintf(stderr, "Error: Could not open help file \"%s\"\n", winhelpname);
+    help_window = HtmlHelp(textwin.hWndParent, winhelpname, HH_GET_WIN_HANDLE, (DWORD_PTR)NULL);
+    if (help_window == NULL) {
+        help_window = HtmlHelp(textwin.hWndParent, winhelpname, HH_DISPLAY_TOPIC, (DWORD_PTR)NULL);
+        if (help_window == NULL) {
+            fprintf(stderr, "Error: Could not open help file \"%s\"\n", winhelpname);
+            return;
+        }
     }
     if (END_OF_COMMAND) {
         /* show table of contents */
@@ -2553,28 +2550,6 @@ doscgets(char *s)
     return (&(s[2]));
 }
 #   endif			/* __TURBOC__ */
-
-#   ifdef __ZTC__
-void
-cputs(char *s)
-{
-    int i = 0;
-    while (s[i] != NUL)
-	bdos(0x02, s[i++], NULL);
-}
-
-char *
-cgets(char *s)
-{
-    bdosx(0x0A, s, NULL);
-
-    if (s[s[1] + 2] == '\r')
-	s[s[1] + 2] = 0;
-
-    /* return the input string */
-    return (&(s[2]));
-}
-#   endif			/* __ZTC__ */
 
 /* emulate a fgets like input function with DOS cgets */
 char *
