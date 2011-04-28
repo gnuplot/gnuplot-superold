@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: winmain.c,v 1.38 2011/03/18 19:41:51 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: winmain.c,v 1.46 2011/04/28 13:44:04 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - win/winmain.c */
@@ -60,6 +60,9 @@ static char *RCSid() { return RCSid("$Id: winmain.c,v 1.38 2011/03/18 19:41:51 m
 #include <commctrl.h>
 #include <shlobj.h>
 #include <shlwapi.h>
+#ifdef WITH_HTML_HELP
+#include <htmlhelp.h>
+#endif
 #include <dos.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -83,6 +86,9 @@ static char *RCSid() { return RCSid("$Id: winmain.c,v 1.38 2011/03/18 19:41:51 m
 #include "wgnuplib.h"
 #include "wtext.h"
 #include "wcommon.h"
+#ifdef HAVE_GDIPLUS
+#include "wgdiplus.h"
+#endif
 
 /* workaround for old header files */
 #ifndef CSIDL_APPDATA
@@ -103,11 +109,17 @@ LPSTR szModuleName;
 LPSTR szPackageDir;
 LPSTR winhelpname;
 LPSTR szMenuName;
-static UINT cp_input;  /* save previous codepage settings */
-static UINT cp_output;
+#if defined(WGP_CONSOLE) && defined(CONSOLE_SWITCH_CP)
+BOOL cp_changed = FALSE;
+UINT cp_input;  /* save previous codepage settings */
+UINT cp_output;
+#endif
 #define MENUNAME "wgnuplot.mnu"
 #ifndef HELPFILE /* HBB 981203: makefile.win predefines this... */
 #define HELPFILE "wgnuplot.hlp"
+#endif
+#ifdef WITH_HTML_HELP
+HWND help_window = NULL;
 #endif
 
 char *authors[]={
@@ -117,6 +129,8 @@ char *authors[]={
 
 void WinExit(void);
 int gnu_main(int argc, char *argv[], char *env[]);
+static void WinCloseHelp(void);
+
 
 void
 CheckMemory(LPSTR str)
@@ -148,6 +162,9 @@ kill_pending_Pause_dialog ()
 void
 WinExit(void)
 {
+        /* Last chance, call before anything else to avoid a crash. */
+        WinCloseHelp();
+
         term_reset();
 
 #ifndef __MINGW32__ /* HBB 980809: FIXME: doesn't exist for MinGW32. So...? */
@@ -164,10 +181,17 @@ WinExit(void)
 #ifndef WGP_CONSOLE
         TextMessage();  /* process messages */
 #else
+#ifdef CONSOLE_SWITCH_CP
         /* restore console codepages */
-        SetConsoleCP(cp_input);
-        SetConsoleOutputCP(cp_output);
-        /* file APIs are per process */
+        if (cp_changed) {
+            SetConsoleCP(cp_input);
+            SetConsoleOutputCP(cp_output);
+            /* file APIs are per process */
+        }
+#endif
+#endif
+#ifdef HAVE_GDIPLUS
+        gdiplusCleanup();
 #endif
         return;
 }
@@ -176,8 +200,10 @@ WinExit(void)
 int CALLBACK
 ShutDown()
 {
-        exit(0);
-        return 0;
+	/* First chance for wgnuplot to close help system. */
+	WinCloseHelp();
+	exit(0);
+	return 0;
 }
 
 
@@ -269,6 +295,21 @@ appdata_directory(void)
 }
 
 
+static void
+WinCloseHelp(void)
+{
+#ifdef WITH_HTML_HELP
+	/* Due to a known bug in the HTML help system we have to
+	 * call this as soon as possible before the end of the program. 
+	 * See e.g. http://helpware.net/FAR/far_faq.htm#HH_CLOSE_ALL
+	 */
+	if (IsWindow(help_window))
+		SendMessage(help_window, WM_CLOSE, 0, 0);
+	Sleep(0);
+#endif
+}
+
+
 #ifndef WGP_CONSOLE
 int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                 LPSTR lpszCmdLine, int nCmdShow)
@@ -301,7 +342,7 @@ int main(int argc, char **argv)
                 tail++;
                 *tail = 0;
         }
-        szModuleName = (LPSTR)farrealloc(szModuleName, _fstrlen(szModuleName)+1);
+        szModuleName = (LPSTR)realloc(szModuleName, _fstrlen(szModuleName)+1);
         CheckMemory(szModuleName);
 
         if (_fstrlen(szModuleName) >= 5 && _fstrnicmp(&szModuleName[_fstrlen(szModuleName)-5], "\\bin\\", 5) == 0)
@@ -351,9 +392,15 @@ int main(int argc, char **argv)
         textwin.shutdown = MakeProcInstance((FARPROC)ShutDown, hInstance);
         textwin.AboutText = (LPSTR)malloc(1024);
         CheckMemory(textwin.AboutText);
-        sprintf(textwin.AboutText,"Version %s\nPatchlevel %s\nLast Modified %s\n%s\n%s, %s and many others",
-                gnuplot_version, gnuplot_patchlevel, gnuplot_date, gnuplot_copyright, authors[1], authors[0]);
-        textwin.AboutText = (LPSTR)farrealloc(textwin.AboutText, _fstrlen(textwin.AboutText)+1);
+        sprintf(textwin.AboutText,
+	    "Version %s patchlevel %s\n" \
+	    "last modified %s\n" \
+	    "%s\n%s, %s and many others\n" \
+	    "gnuplot home:     http://www.gnuplot.info\n",
+            gnuplot_version, gnuplot_patchlevel, 
+	    gnuplot_date,
+	    gnuplot_copyright, authors[1], authors[0]);
+        textwin.AboutText = (LPSTR)realloc(textwin.AboutText, _fstrlen(textwin.AboutText)+1);
         CheckMemory(textwin.AboutText);
 
         menuwin.szMenuName = szMenuName;
@@ -364,7 +411,7 @@ int main(int argc, char **argv)
 
         graphwin.hInstance = hInstance;
         graphwin.hPrevInstance = hPrevInstance;
-        graphwin.Title = WINGRAPHTITLE;
+        graphwin.Title = strdup(WINGRAPHTITLE);
         graphwin.lptw = &textwin;
         graphwin.IniFile = textwin.IniFile;
         graphwin.IniSection = textwin.IniSection;
@@ -402,16 +449,21 @@ int main(int argc, char **argv)
                 UpdateWindow(textwin.hWndParent);
         }
 #else /* WGP_CONSOLE */
+#ifdef CONSOLE_SWITCH_CP
         /* Change codepage of console to match that of the graph window.
+           WinExit() will revert this.
            Attention: display of characters does not work correctly with 
            "Terminal" font! Users will have to use "Lucida Console" or similar.
-           WinExit() reverts this.
         */
         cp_input = GetConsoleCP();
         cp_output = GetConsoleOutputCP();
-        SetConsoleCP(GetACP()); /* keyboard input */
-        SetConsoleOutputCP(GetACP()); /* screen output */
-        SetFileApisToANSI(); /* file names etc. */
+        if (cp_input != GetACP()) {
+            cp_changed = TRUE;
+            SetConsoleCP(GetACP()); /* keyboard input */
+            SetConsoleOutputCP(GetACP()); /* screen output */
+            SetFileApisToANSI(); /* file names etc. */
+        }
+#endif
 #endif
 
 
@@ -422,6 +474,9 @@ int main(int argc, char **argv)
 
         gnu_main(_argc, _argv, environ);
 
+        /* First chance to close help system for console gnuplot,
+        second for wgnuplot */
+        WinCloseHelp();
         return 0;
 }
 
@@ -506,11 +561,11 @@ MyGetS(char *str)
 char *
 MyFGetS(char *str, unsigned int size, FILE *file)
 {
-    char FAR *p;
+    char *p;
 
     if (isterm(file)) {
         p = TextGetS(&textwin, str, size);
-        if (p != (char FAR *)NULL)
+        if (p != (char *)NULL)
             return str;
         return (char *)NULL;
     }
@@ -712,7 +767,7 @@ int ConsoleGetch()
                             case VK_RIGHT: return 006;
                             case VK_HOME: return 001;
                             case VK_END: return 005;
-                            case VK_DELETE: return 004;
+                            case VK_DELETE: return 0117;
                         }
                 }
             }
