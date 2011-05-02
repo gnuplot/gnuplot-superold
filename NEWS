@@ -9,6 +9,7 @@ New features, changes and fixes since gnuplot version 4.4
 * NEW plot style "with boxplot"
 * NEW plot style "with circles" allows start/end angles for each arc
 * NEW plot style "with ellipses"
+* NEW plot style "with fillsteps"
 * NEW qt terminal driver 
 * NEW variable (per-data point) color for additional plot styles
 * NEW "set key opaque" produces a key with an opaque background
@@ -20,14 +21,20 @@ New features, changes and fixes since gnuplot version 4.4
 * NEW polar mode raxis, rtics, rrange, log-scaling, bounded filledcurves
 * NEW Shift-JIS encoding recognized by postscript, gd, svg, and win terminals
 * NEW windows terminal supports encodings
+* NEW mouse tracking for SVG terminal
+* NEW tab-completion for builtin readline
 * FIX length estimation of UTF-8 strings
 * FIX accurate placement of color boundaries in the colorbar
+* FIX Built-in readline handles UTF-8 encoding
 * CHANGE 3D zoom using middle mouse button is now a logarithmic response
 * CHANGE 3D impulses are now always drawn from z=0
 * CHANGE remove vestigial code supporting Amiga, Apollo, and 16-bit MSDOS/WIN
 * CHANGE extend formats x/X/o/O to 64 bits if necessary to represent the value
 * CHANGE "set palette maxcolors" no longer fights with "set palette defined"
 * CHANGE javascript support for HTML5 canvas does not use global variables
+* CHANGE Built-in readline DEL recognized as forward-delete (system-dependent)
+* CHANGE Built-in readline ^W deletes previous full or partial word
+
 
 New features, changes and fixes in gnuplot version 4.4.0
 ========================================================
