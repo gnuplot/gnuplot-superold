@@ -1,15 +1,15 @@
 # Hello, emacs: this is a -*- Makefile -*-
-# $Id: Makefile,v 1.4 2011/03/13 12:15:56 markisch Exp $
+# $Id: Makefile,v 1.11 2011/05/04 17:22:53 markisch Exp $
 #
 # GNUPLOT Makefile for MinGW32 on Win95/98/NT/2k/..
 # This assumes usual installation of the MinGW32 toolkit, the free
 # GNU gcc. See www.mingw.org for more details.
 
-# To compile gnuplot for WinXX:
+# To compile gnuplot for Windows:
 #
-# - compile the package: go to directory 'gnuplot' and issue the command
-#	 make -C src -f ../config/makefile.mgw
-#	 make install -C src -f ../config/makefile.mgw
+# - compile the package: go to directory 'gnuplot/config/mingw' and issue the command
+#	 make
+#	 make install
 #
 # This makefile was tested with MSYS, MingW32 and Microsoft Help
 # Workshop 4.03 / Microsoft HTML Help 1.4 SDK.
@@ -30,11 +30,13 @@
 # Comment for programs using gnuplot as their plotting engine:
 # Both wgnuplot*.exe compile also pgnuplot.exe. This small helper program was
 # used when gnuplot.exe was not available on Windows. Nowadays, pgnuplot.exe
-# is deprecated -- plese use gnuplot.exe instead.
+# is deprecated -- please use gnuplot.exe instead.
 
-#TARGET=wgnuplot.exe
+ifndef TARGET
+TARGET=wgnuplot.exe
 #TARGET=wgnuplot_pipes.exe
-TARGET=gnuplot.exe
+#TARGET=gnuplot.exe
+endif
 
 # Comment out the definition lines to disable the according features:
 
@@ -45,7 +47,7 @@ HTML_HELP=1
 # GIF, PNG, JPEG device drivers
 # Requires gd library. There are two possibilities how to configure these
 # drivers for use in gnuplot, depending on the gd version. See README.1ST for
-# more details. 
+# more details.
 #
 # You should compile gnuplot with GD library v2.0 or newer.
 # This library writes PNG, GIF and JPEG images.
@@ -55,12 +57,13 @@ HTML_HELP=1
 # In some cases, libfreetype can depend on additional libraries such as
 # fontconfig or iconv; then, uncomment GDAUTOCONFIGLIBS so that all of the
 # libraries needed for linking will be taken by running 'gdlib-config'.
-#
+# Uncomment BGD if you want to use the binary DLL version of libgd.
 #NEWGD=1
 #JPEG=1
 #FREETYPE=1
 #GDAUTOCONFIGLIBS=1
-	
+#BGD=1
+
 # PDF device driver
 # Requires PNG and Z libraries based on particular PDF library used, and
 # optionally also TIFF library according to
@@ -87,26 +90,23 @@ MOUSE=1
 # terminals
 #CAIROTERMS=1
 #CAIROLIBS=1
-#
 
 # WXWIDGETS interactive terminal
 # Requires wxWidgets, Cairo, Pango, and their respective dependencies.
 # Uncomment the following lines to compile it.
-# WXT_LOCATION should give the path where can be found wx/*.h headers
 #WXT=1
-#WX_LOCATION=/usr/local/include/wx-2.6
 #CAIROLIBS=1
 
 # Uncomment the following line to select the lua/tikz terminal
-#LUA=1
+#LUA=lua5.1
 
 # Below you can adapt paths according to your software setup:
 
-# Where to place gnuplot.gih helpfile:
+# Where to place the helpfile:
 ifdef HTML_HELP
   HELPFILE = wgnuplot.chm
 else
-HELPFILE = wgnuplot.hlp
+  HELPFILE = wgnuplot.hlp
 endif
 
 # Where to install the PostScript prologue files, relatively to the executable
@@ -129,16 +129,16 @@ DESTDIR = /local/opt/gnuplot-4.5
 # Do you want some special optimization?
 # -mpentium means optimise for Pentium processor
 # -mpentiumpro means optimize for Pentium II and Pro procesors
-CFLAGS =
+#CFLAGS +=
 
 ifdef HTML_HELP
 
 # To compile the .chm file you need the Microsoft HTML Help 1.4 SDK
 # It can be obtained here:
 # http://go.microsoft.com/fwlink/?LinkId=154968
-# We need to explicitly set the correct path here since we also need 
+# We need to explicitly set the correct path here since we also need
 # adjust the include and linrary paths.
-HHWPATH = /c/Program\ Files/HTML\ Help\ Workshop/
+HHWPATH = "$(PROGRAMFILES)/HTML Help Workshop/"
 HHC = $(HHWPATH)hhc
 
 else
@@ -148,7 +148,7 @@ else
 # ftp://ftp.microsoft.com/softlib/mslfiles/hcwsetup.exe
 # http://www.microsoft.com/downloads/details.aspx?displaylang=en&FamilyID=34D35502-4DE9-4676-952C-34CC7F64F098
 # Put the path to hcw here unless it is already in PATH:
-HCWPATH = /c/Program\ Files/Help\ Workshop/
+HCWPATH = "$(PROGRAMFILES)/Help\ Workshop/"
 HCW = $(HCWPATH)hcw
 # Switches are for HCW 4.03:
 HCWFLAG =
@@ -207,7 +207,7 @@ RM = rm -f
 CP = cp -p
 
 ifdef DEBUG
-  CFLAGS += -g
+  CFLAGS += -g -Wall
   LDFLAGS += -g
 else
   CFLAGS += -O2
@@ -238,10 +238,10 @@ M=$(TOP)/demo/
 
 VPATH = $(S)
 
-TERMFLAGS = -DGNUPLOT_PS_DIR=\"$(GNUPLOT_PS_DIR)\" -DGNUPLOT_JS_DIR=\"$(GNUPLOT_JS_DIR)\" 
-TERMFLAGS += -DGNUPLOT_LUA_DIR=\"$(GNUPLOT_LUA_DIR)\" -I$(TOP)/term
+TERMFLAGS = -DGNUPLOT_PS_DIR=\"$(GNUPLOT_PS_DIR)\" -DGNUPLOT_JS_DIR=\"$(GNUPLOT_JS_DIR)\"
+TERMFLAGS += -I$(TOP)/term
 
-TERMLIBS = 
+TERMLIBS =
 
 CFLAGS += -I. -I$(S) -D_Windows -DHAVE_CONFIG_H $(OPTS)
 
@@ -251,7 +251,6 @@ endif
 
 ifdef HTML_HELP
   CFLAGS += -DWITH_HTML_HELP -I$(HHWPATH)include
-  TERMLIBS += -L$(HHWPATH)lib -lhtmlhelp
   BUILDHELPFILE = $(D)windows/$(HELPFILE)
 else
   BUILDHELPFILE = $(HELPFILE)
@@ -264,13 +263,19 @@ endif
 
 ifdef GD
   CFLAGS += -DHAVE_LIBGD
-  TERMLIBS += -lgd
+  ifndef BGD
+    TERMLIBS += -lgd
+  else
+    TERMLIBS += -lbgd
+  endif
 endif
 
 ifdef PNG
   CFLAGS += -DHAVE_LIBPNG
+  ifndef BGD
   ifndef GDAUTOCONFIGLIBS
     TERMLIBS += -lpng -lz
+  endif
   endif
 endif
 
@@ -278,14 +283,18 @@ ifdef NEWGD
   CFLAGS += -DHAVE_GD_GIF -DGIF_ANIMATION -DHAVE_GD_PNG
 ifdef JPEG
   CFLAGS += -DHAVE_GD_JPEG
+  ifndef BGD
   ifndef GDAUTOCONFIGLIBS
     TERMLIBS += -ljpeg
+  endif
   endif
 endif
 ifdef FREETYPE
   CFLAGS += -DHAVE_GD_TTF
+  ifndef BGD
   ifndef GDAUTOCONFIGLIBS
     TERMLIBS += -lfreetype
+  endif
   endif
 endif
 ifdef GDAUTOCONFIGLIBS
@@ -315,12 +324,11 @@ endif
 endif
 
 ifdef CAIROLIBS
-	CAIRO_CFLAGS = $(shell pkg-config --cflags cairo)
-	CAIRO_LIBS = $(shell pkg-config --libs cairo)
-	PANGO_CFLAGS = $(shell pkg-config --cflags pangocairo)
-	PANGO_LIBS = $(shell pkg-config --libs pangocairo)
-	CAIRO_OBJS = gp_cairo.$(O) gp_cairo_helpers.$(O)
-	TERMFLAGS += $(CAIRO_CFLAGS) $(PANGO_CFLAGS)
+	CAIRO_CFLAGS := $(shell pkg-config --cflags cairo | sed s_-Ic:_-I/c_g)
+	PANGOCAIRO_CFLAGS := $(shell pkg-config --cflags pangocairo cairo | sed s_-Ic:_-I/c_g)
+	PANGOCAIRO_LIBS := $(shell pkg-config --libs pangocairo cairo | sed s_-Lc:_-L/c_g)
+	CAIRO_OBJS := gp_cairo.$(O) gp_cairo_helpers.$(O)
+	TERMFLAGS += $(PANGOCAIRO_CFLAGS)
 endif
 
 ifdef CAIROTERMS
@@ -329,40 +337,35 @@ endif
 
 ifdef WXT
 	CFLAGS += -DWXWIDGETS
-	CXXFLAGS += $(shell wx-config --cxxflags)
-	WX_LIBS = $(shell wx-config --libs | sed -e "s+-Wl,--subsystem,windows++g" -e "s+-mwindows++g")
+	WXT_CXXFLAGS := $(shell wx-config --cxxflags)
+	CXXFLAGS += $(WXT_CXXFLAGS)
+	WX_LIBS := $(shell wx-config --libs | sed -e "s+-Wl,--subsystem,windows++g" -e "s+-mwindows++g")
 	WX_OBJS = wxt_gui.$(O)
 endif
 
 ifdef LUA
 	CFLAGS += -DHAVE_LUA
-	TERMLIBS += -llua
+	TERMLIBS += -l$(LUA)
 	TERMFLAGS += -DGNUPLOT_LUA_DIR=\"$(GNUPLOT_LUA_DIR)\"
+	LUATARGETS += gnuplot-lua-tikz.sty
 endif
 
 ifdef GNU_RC
   # RC = d:/cygnus/cygwin-b20/H-i586-cygwin32/bin/windres
   RC  = $(GCCPATH)windres
-  RCFLAGS = --include-dir /mingw32/include \
-	--include-dir=win \
+  RCFLAGS = --include-dir=$(W) \
 	--define __WIN32__ --define __WIN95__ --define MSRC \
 	--define __GNUWIN32__ --use-temp-file
-  ifdef WXT
-	RCFLAGS += --define WXWIDGETS --include-dir=$(WX_LOCATION)
-  endif
   RCOUT = wgplt_res.$(O)
   RES2COFF = echo wgplt_res.$(O)
 else
   RC = $(MSSDK)/bin/rc
-  RCFLAGS = -v -i$(MSSDK)/include -iwin -dWIN32 -dMSRC
-  ifdef WXT
-	RCFLAGS += -dWXWIDGETS -i$(WX_LOCATION)
-  endif
+  RCFLAGS = -v -i$(MSSDK)/include -i$(W) -dWIN32 -dMSRC
   RCOUT = -fowgnuplot.res
   RES2COFF = res2coff -i wgnuplot.res -o wgplt_res.$(O)
 endif
 
-default: $(TARGET) $(HELPFILE) $(MENUFILE) $(M)bf_test.exe $(PGNUPLOT)
+default: $(TARGET) $(HELPFILE) $(MENUFILE) $(M)bf_test.exe $(PGNUPLOT) $(LUATARGETS)
 
 all:	default gnuplot.ps gnuplot.pdf
 
@@ -373,14 +376,14 @@ include $(S)/makefile.all
 OBJS = $(COREOBJS) version.$(O) gpexecute.$(O) $(WX_OBJS) $(CAIRO_OBJS)
 
 WINOBJS = winmain.$(O) wgnuplib.$(O) wgraph.$(O) wprinter.$(O) wtext.$(O) \
-	  wpause.$(O) wmenu.$(O) screenbuf.$(O)
+	  wpause.$(O) wmenu.$(O) screenbuf.$(O) wgdiplus.$(O)
 
-WINDOWS = makefile.win makefile.nt README.win $(W)/wcommon.h \
-	$(W)/wgnuplib.c $(W)/wgnuplib.def $(W)/wgnuplib.h $(W)/wgnuplib.rc \
-	$(W)/wgnuplot.def $(W)/wgnuplot.hpj $(W)/wgnuplot.mnu $(W)/wgraph.c \
+WINDOWS = makefile.nt README.win $(W)/wcommon.h \
+	$(W)/wgnuplib.c $(W)/wgnuplib.h $(W)/wgnuplib.rc \
+	$(W)/wgnuplot.hpj $(W)/wgnuplot.mnu $(W)/wgraph.c \
 	$(W)/winmain.c $(W)/wmenu.c $(W)/wpause.c $(W)/wprinter.c \
 	$(W)/wresourc.h $(W)/wtext.c $(W)/wtext.h $(W)/geticon.c \
-	$(W)/screenbuf.c $(W)/screenbuf.h \
+	$(W)/screenbuf.c $(W)/screenbuf.h $(W)/wgdiplus.cpp $(W)/wgdiplus.h \
 	$(D)doc2rtf.c $(T)win.trm $(W)/grpicon.ico $(W)/texticon.ico
 
 ifdef HTML_HELP
@@ -394,67 +397,77 @@ endif
 .c.$(O):
 	$(CC) -c $(CFLAGS) $<
 
-LDLIBS = -lkernel32 -lgdi32 -lwinspool -lcomdlg32 -lcomctl32 -ladvapi32 -lshell32 -lmsimg32
+LDLIBS = -lkernel32 -lgdi32 -lwinspool -lcomdlg32 -lcomctl32 -ladvapi32 -lshell32 -lmsimg32 -lgdiplus
 
+ifdef HTML_HELP
+  LDLIBS += -lhtmlhelp
+  LDFLAGS2 += -L$(HHWPATH)lib
+endif
 
-$(TARGET): $(OBJS) $(WINOBJS) $(W)/wgnuplot.def wgplt_res.$(O) texticon.ico grpicon.ico
+$(TARGET): $(OBJS) $(WINOBJS) wgplt_res.$(O) texticon.ico grpicon.ico
 	$(LDX) $(LDFLAGS) $(LDFLAGS2) -o $@ $(OBJS) $(WINOBJS) wgplt_res.$(O) $(LDLIBS)\
-	$(TERMLIBS) $(WX_LIBS) $(CAIRO_LIBS) $(PANGO_LIBS)
+	$(TERMLIBS) $(WX_LIBS) $(PANGOCAIRO_LIBS)
 
 $(PGNUPLOT): $(W)/pgnuplot.c version.$(O)
-	$(CC) -O2 -DHAVE_STDBOOL_H -s -o $@ $(W)/pgnuplot.c version.$(O) -I$(W) -I$(S) -luser32
+	$(CC) -O2 -DHAVE_STDBOOL_H -s -o $@ $^ -I$(W) -I$(S) -luser32
 
 # rules
 
 wgplt_res.$(O) :  $(W)/wgnuplot.rc $(W)/wgnuplib.rc $(W)/wresourc.h texticon.ico grpicon.ico
-	$(RC) $(RCFLAGS) --include-dir=win $(W)/wgnuplot.rc $(RCOUT)
+	$(RC) $(RCFLAGS) $< $(RCOUT)
 	$(RES2COFF)
 
 show.$(O): show.c plot.h setshow.h
-	$(CC) -c $(CFLAGS) -DHELPFILE=\"$(HELPFILE)\" -DBINDIR=\"$(bindir)\" $<
+	$(CC) -c $(CFLAGS) -DHELPFILE=\"$(HELPFILE)\" -DBINDIR=\"$(bindir)\" -DGNUPLOT_PS_DIR=\"$(GNUPLOT_PS_DIR)\" $<
 
 term.$(O): term.c term.h plot.h setshow.h bitmap.h $(CORETERM)
 	$(CC) -c $(CFLAGS) $(TERMFLAGS) $<
 
-version.$(O): version.c
+version.$(O): $(S)/version.c
 
-WINDEPS = $(W)/wgnuplib.h $(W)/wcommon.h $(W)/wresourc.h $(W)/screenbuf.h
+$(S)/version.c: $(TOP)/VERSION $(TOP)/PATCHLEVEL $(TOP)/ChangeLog $(S)/Makefile.maint
+	$(MAKE) -C $(S) -f Makefile.maint version.c
+
+WINDEPS = $(W)/wgnuplib.h $(W)/wcommon.h $(W)/wresourc.h $(W)/screenbuf.h $(W)/wgdiplus.h
 
 winmain.$(O): $(W)/winmain.c $(W)/wgnuplib.h $(W)/wtext.h plot.h
-	$(CC) -c $(CFLAGS) -DHELPFILE=\"$(HELPFILE)\"  $(W)/winmain.c
+	$(CC) -c $(CFLAGS) -DHELPFILE=\"$(HELPFILE)\" $<
 
 wgnuplib.$(O): $(W)/wgnuplib.c $(WINDEPS)
-	$(CC) -c $(CFLAGS) $(W)/wgnuplib.c
+	$(CC) -c $(CFLAGS) $<
 
 wmenu.$(O): $(W)/wmenu.c $(WINDEPS)
-	$(CC) -c $(CFLAGS) $(W)/wmenu.c
+	$(CC) -c $(CFLAGS) $<
 
 wtext.$(O): $(W)/wtext.c $(WINDEPS)
-	$(CC) -c $(CFLAGS) $(W)/wtext.c
+	$(CC) -c $(CFLAGS) $<
 
 screenbuf.$(O): $(W)/screenbuf.c $(WINDEPS)
-	$(CC) -c $(CFLAGS) $(W)/screenbuf.c
+	$(CC) -c $(CFLAGS) $<
 
-wpause.$(O): $(W)/wpause.c wxterminal/wxt_term.h $(WINDEPS)
-	$(CC) -c $(CFLAGS) $(W)/wpause.c
+wpause.$(O): $(W)/wpause.c $(S)/wxterminal/wxt_term.h $(WINDEPS)
+	$(CC) -c $(CFLAGS) $<
 
 wprinter.$(O): $(W)/wprinter.c $(WINDEPS)
-	$(CC) -c $(CFLAGS) $(W)/wprinter.c
+	$(CC) -c $(CFLAGS) $<
 
 wgraph.$(O): $(W)/wgraph.c $(WINDEPS)
-	$(CC) -c $(CFLAGS) $(W)/wgraph.c
+	$(CC) -c $(CFLAGS) $<
+
+wgdiplus.$(O): $(W)/wgdiplus.cpp $(WINDEPS)
+	$(CXX) -c $(CXXFLAGS) $(W)/wgdiplus.cpp
 
 wgnuplot.mnu: $(W)/wgnuplot.mnu
 	$(CP) $^ $@
 
-wxt_gui.$(O): wxterminal/wxt_gui.cpp wxterminal/wxt_gui.h $(WX_LOCATION)
-	$(CXX) -c $(CFLAGS) $(CXXFLAGS) $(CAIRO_CFLAGS) wxterminal/wxt_gui.cpp
+wxt_gui.$(O): $(S)/wxterminal/wxt_gui.cpp $(S)/wxterminal/wxt_gui.h
+	$(CXX) -c $(CFLAGS) $(CXXFLAGS) $(CAIRO_CFLAGS) $<
 
-gp_cairo.$(O): wxterminal/gp_cairo.c wxterminal/gp_cairo.h
-	$(CC) -c $(CFLAGS) $(CXXFLAGS) $(CAIRO_CFLAGS) $(PANGO_CFLAGS) wxterminal/gp_cairo.c
+gp_cairo.$(O): $(S)/wxterminal/gp_cairo.c $(S)/wxterminal/gp_cairo.h
+	$(CC) -c $(CFLAGS) $(CXXFLAGS) $(PANGOCAIRO_CFLAGS) $<
 
-gp_cairo_helpers.$(O): wxterminal/gp_cairo_helpers.c wxterminal/gp_cairo_helpers.h
-	$(CC) -c $(CFLAGS) wxterminal/gp_cairo_helpers.c
+gp_cairo_helpers.$(O): $(S)/wxterminal/gp_cairo_helpers.c $(S)/wxterminal/gp_cairo_helpers.h
+	$(CC) -c $(CFLAGS) $<
 
 # extract icons from wgnuplot.rc
 texticon.ico: grpicon.ico
@@ -463,14 +476,14 @@ grpicon.ico: geticon.exe $(W)/wgnuplot.rc
 	./geticon $(W)/wgnuplot.rc
 
 geticon.exe: $(W)/geticon.c
-	$(LD) $(LDFLAGS) -o $@ $(W)/geticon.c
+	$(LD) $(LDFLAGS) -o $@ $<
 
 ifdef HTML_HELP
 # convert gnuplot.doc to windows/wgnuplot.html
 $(BUILDHELPFILE): doc2html.exe $(D)gnuplot.doc $(D)windows/wgnuplot.hhp $(D)windows/wgnuplot.hhk \
                   $(D)windows/wgnuplot.stp $(D)plotstyles.gnu
 	./doc2html $(D)gnuplot.doc $(D)windows/
-	-( cd $(D) ; ../config/mingw/$(TARGET) -e "winhelp=1" plotstyles.gnu )
+	-$(TARGET) -e "winhelp=1; cd '$(D)'" plotstyles.gnu
 	-$(HHC) $(D)windows/wgnuplot.hhp
 
 $(HELPFILE): $(BUILDHELPFILE)
@@ -504,6 +517,13 @@ dbinary.$(O): binary.c
 $(OBJS) $(WINOBJS) dbinary.$(O): config.h
 config.h: $(TOP)/config/config.mgw
 	cp -p $< $@
+
+
+# generate LUA TeX support files
+ifdef LUA
+gnuplot-lua-tikz.sty: $(T)/lua/gnuplot-tikz.lua
+	$(LUA) $(T)/lua/gnuplot-tikz.lua style
+endif
 
 
 # Create documentation in various formats
@@ -563,11 +583,10 @@ gnuplot.pdf: gnuplot.tex $(D)titlepag.tex
 # clean up temporary files
 clean:
 	$(RM) config.h *.$(O) wgnuplot.map wgnuplot.res $(W)/gnuplot.rtf
-	$(RM) wxterminal/*.$(O)
 	$(RM) doc2*.exe $(W)/wgnuplib.res wgnuplib.map wgnuplot.lib
 	$(RM) $(M)bf_test.exe *.ico geticon.exe allterm.h allterm.c
 	$(RM) gnuplot.tex gnuplot.dvi gnuplot.ps gnuplot.pdf
-	$(RM) $(D)windows/wgnuplot.log $(D)windows/wgnuplot.hhc 
+	$(RM) $(D)windows/wgnuplot.log $(D)windows/wgnuplot.hhc
 	$(RM) $(D)windows/*.png $(D)windows/wgnuplot.html
 
 realclean: veryclean
@@ -575,24 +594,38 @@ veryclean: clean
 	$(RM) wgnuplot.exe wgnuplot_pipes.exe gnuplot.exe pgnuplot.exe
 	$(RM) $(HELPFILE) wgnuplot.chw wgnuplot.gid wgnuplot.mnu
 	$(RM) $(M)binary[123] $(M)fit.log $(M)soundfit.par
+	-$(RM) gnuplot-lua-tikz.sty gnuplot-lua-tikz.tex
+	-$(RM) gnuplot-lua-tikz-common.tex t-gnuplot-lua-tikz.tex
 
 # now move the whole stuff to its destination
 install: default
 	mkdir -p $(DESTDIR)
-	cp gnuplot.exe $(DESTDIR)/gnuplot.exe
-	cp wgnuplot.exe $(DESTDIR)/wgnuplot.exe
-	cp wgnuplot_pipes.exe $(DESTDIR)/wgnuplot_pipes.exe
-	cp pgnuplot.exe $(DESTDIR)/pgnuplot.exe
-	cp $(W)/wgnuplot.mnu $(DESTDIR)/wgnuplot.mnu
-ifdef HTML_HELP	
-	cp $(D)windows/wgnuplot.chm $(DESTDIR)/wgnuplot.chm
-else
-	cp wgnuplot.hlp $(DESTDIR)/wgnuplot.hlp
-endif
+# binaries go to /bin
+	mkdir -p $(DESTDIR)/bin
+	cp -p gnuplot.exe $(DESTDIR)/bin/
+	cp -p wgnuplot.exe $(DESTDIR)/bin/
+	-cp -p wgnuplot_pipes.exe $(DESTDIR)/bin/
+	cp -p pgnuplot.exe $(DESTDIR)/bin/
+	cp -p $(W)/wgnuplot.mnu $(DESTDIR)/bin/
+	cp -p $(HELPFILE) $(DESTDIR)/bin/
+# terminal support files
 	mkdir -p $(DESTDIR)/$(GNUPLOT_PS_DIR)
-	cp ../term/PostScript/*.ps $(DESTDIR)/$(GNUPLOT_PS_DIR)
+	cp -p $(TOP)/term/PostScript/*.ps $(DESTDIR)/$(GNUPLOT_PS_DIR)/
 	mkdir -p $(DESTDIR)/$(GNUPLOT_JS_DIR)
-	cp ../term/js/* $(DESTDIR)/$(GNUPLOT_JS_DIR)
+	cp -p $(TOP)/term/js/*.* $(DESTDIR)/$(GNUPLOT_JS_DIR)/
+	cp -p $(TOP)/term/js/README $(DESTDIR)/$(GNUPLOT_JS_DIR)/
+	mkdir -p $(DESTDIR)/share/LaTeX
+	cp -p $(TOP)/share/LaTeX/README $(DESTDIR)/share/LaTeX/
+	cp -p $(TOP)/share/LaTeX/gnuplot.cfg $(DESTDIR)/share/LaTeX/
+ifdef LUA
 	mkdir -p $(DESTDIR)/$(GNUPLOT_LUA_DIR)
-	cp ../term/lua/* $(DESTDIR)/$(GNUPLOT_LUA_DIR)
-
+	(cd $(TOP)/term/lua/; cp -p README NEWS TODO gnuplot-tikz.lua $(DESTDIR)/$(GNUPLOT_LUA_DIR)/)
+	cp -p *.tex *.sty $(DESTDIR)/share/LaTeX/
+endif
+# README etc
+	(cd $(TOP); cp -p BUGS Copyright README NEWS ChangeLog $(DESTDIR)/)
+# demo and contrib
+	mkdir -p $(DESTDIR)/demo
+	-cp -p $(TOP)/demo/* $(DESTDIR)/demo/
+	mkdir -p $(DESTDIR)/contrib/pm3d/
+	-cp -p $(TOP)/pm3d/contrib/* $(DESTDIR)/contrib/pm3d/
