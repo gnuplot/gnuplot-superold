@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: wgraph.c,v 1.99 2011/03/16 22:57:32 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: wgraph.c,v 1.118 2011/05/05 22:39:10 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - win/wgraph.c */
@@ -69,17 +69,17 @@ static char *RCSid() { return RCSid("$Id: wgraph.c,v 1.99 2011/03/16 22:57:32 ma
 # include "mouse.h"
 # include "command.h"
 #endif
-# include "color.h"
-# include "getcolor.h"
+#include "color.h"
+#include "getcolor.h"
+#ifdef HAVE_GDIPLUS
+#include "wgdiplus.h"
+#endif
 
 #ifdef USE_MOUSE
 /* Petr Mikulik, February 2001
  * Declarations similar to src/os2/gclient.c -- see section
  * "PM: Now variables for mouse" there in.
  */
-
-/* If wgnuplot crashes during redrawing and mouse on, then this could help: */
-/* static char lock_mouse = 1; */
 
 /* Status of the ruler */
 static struct Ruler {
@@ -107,12 +107,12 @@ HCURSOR hptrDefault, hptrCrossHair, hptrScaling, hptrRotating, hptrZooming, hptr
 static void	Wnd_exec_event(LPGW lpgw, LPARAM lparam, char type, int par1);
 static void	Wnd_refresh_zoombox(LPGW lpgw, LPARAM lParam);
 static void	Wnd_refresh_ruler_lineto(LPGW lpgw, LPARAM lParam);
-static void     GetMousePosViewport(LPGW lpgw, int *mx, int *my);
+static void	GetMousePosViewport(LPGW lpgw, int *mx, int *my);
 static void	Draw_XOR_Text(LPGW lpgw, const char *text, size_t length, int x, int y);
-static void     UpdateStatusLine(LPGW lpgw, const char text[]);
+static void	UpdateStatusLine(LPGW lpgw, const char text[]);
 static void	DrawRuler(LPGW lpgw);
 static void	DrawRulerLineTo(LPGW lpgw);
-static void     DrawZoomBox(LPGW lpgw);
+static void	DrawZoomBox(LPGW lpgw);
 static void	LoadCursors(LPGW lpgw);
 static void	DestroyCursors(LPGW lpgw);
 #endif /* USE_MOUSE */
@@ -128,7 +128,7 @@ COLORREF wginitcolor[WGDEFCOLOR] =  {
 	RGB(0,0,128),	/* dark blue */
 	RGB(128,0,0),	/* dark red */
 	RGB(0,128,128),	/* dark cyan */
-	RGB(0,0,0),	/* black */
+	RGB(0,0,0),		/* black */
 	RGB(128,128,128), /* grey */
 	RGB(0,128,64),	/* very dark cyan */
 	RGB(128,128,0), /* dark yellow */
@@ -145,37 +145,17 @@ int wginitstyle[WGDEFSTYLE] = {PS_SOLID, PS_DASH, PS_DOT, PS_DASHDOT, PS_DASHDOT
  * need to know about it */
 #define GWOPMAX 4096
 
+#define MINMAX(a,val,b) (((val) <= (a)) ? (a) : ((val) <= (b) ? (val) : (b)))
 
 /* bitmaps for filled boxes (ULIG) */
 /* zeros represent the foreground color and ones represent the background color */
-/* FIXME HBB 20010916: *never* extern in a C source! */
-/*  extern int filldensity; */
-/*  extern int fillpattern; */
-
-static unsigned char halftone_bitmaps[][16] ={
-  { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },   /* no fill */
-  { 0xEE, 0xEE, 0xBB, 0xBB, 0xEE, 0xEE, 0xBB, 0xBB,
-    0xEE, 0xEE, 0xBB, 0xBB, 0xEE, 0xEE, 0xBB, 0xBB },   /* 25% pattern */
-  { 0xAA, 0xAA, 0x55, 0x55, 0xAA, 0xAA, 0x55, 0x55,
-    0xAA, 0xAA, 0x55, 0x55, 0xAA, 0xAA, 0x55, 0x55 },   /* 50% pattern */
-  { 0x88, 0x88, 0x22, 0x22, 0x88, 0x88, 0x22, 0x22,
-    0x88, 0x88, 0x22, 0x22, 0x88, 0x88, 0x22, 0x22 },   /* 75% pattern */
-  { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }    /* solid pattern */
-};
-#define halftone_num (sizeof(halftone_bitmaps) / sizeof (*halftone_bitmaps))
-static HBRUSH halftone_brush[halftone_num];
-static BITMAP halftone_bitdata[halftone_num];
-static HBITMAP halftone_bitmap[halftone_num];
-
 static unsigned char pattern_bitmaps[][16] = {
   {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, /* no fill */
   {0xFE, 0xFE, 0x7D, 0x7D, 0xBB, 0xBB, 0xD7, 0xD7,
    0xEF, 0xEF, 0xD7, 0xD7, 0xBB, 0xBB, 0x7D, 0x7D}, /* cross-hatch (1) */
-  {0x77, 0x77, 0xAA, 0xBB, 0xDD, 0xDD, 0xAA, 0xBB,
-   0x77, 0x77, 0xAA, 0xBB, 0xDD, 0xDD, 0xAA, 0xBB}, /* double cross-hatch (2) */
+  {0x77, 0x77, 0xAA, 0xAA, 0xDD, 0xDD, 0xAA, 0xAA,
+   0x77, 0x77, 0xAA, 0xAA, 0xDD, 0xDD, 0xAA, 0xAA}, /* double cross-hatch (2) */
   {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, /* solid fill (3) */
   {0x7F, 0x7F, 0xBF, 0xBF, 0xDF, 0xDF, 0xEF, 0xEF,
@@ -193,13 +173,33 @@ static unsigned char pattern_bitmaps[][16] = {
    0x3F, 0x3F, 0xCF, 0xCF, 0xF3, 0xF3, 0xFC, 0xFC}  /* shallow diagonals (old 6) */
 #endif
 };
-
 #define pattern_num (sizeof(pattern_bitmaps)/(sizeof(*pattern_bitmaps)))
 static HBRUSH pattern_brush[pattern_num];
 static BITMAP pattern_bitdata[pattern_num];
 static HBITMAP pattern_bitmap[pattern_num];
 
 static TBOOLEAN brushes_initialized = FALSE;
+
+
+/* Internal state of enhanced text processing.
+   Do not access outside draw_enhanced_text, GraphEnhancedOpen or
+   GraphEnhancedFlush.
+*/
+static struct {
+	LPGW lpgw;           /* graph window */
+	HDC  hdc;            /* device context */
+	LPRECT rect;         /* rect to update */
+	BOOL opened_string;  /* started processing of substring? */
+	BOOL show;           /* print this substring? */
+	int overprint;       /* overprint flag */
+	BOOL widthflag;      /* FALSE for zero width boxes */
+	BOOL sizeonly;       /* only measure length of substring? */
+	double base;         /* current baseline */
+	int xsave, ysave;    /* save text position for overprinted text */
+	int x, y;            /* current text position */
+	char fontname[MAXFONTNAME]; /* current font name */
+	double fontsize;     /* current font size */
+} enhstate;
 
 
 /* ================================== */
@@ -215,22 +215,26 @@ static void	StorePen(LPGW lpgw, int i, COLORREF ref, int colorstyle, int monosty
 static void	MakePens(LPGW lpgw, HDC hdc);
 static void	DestroyPens(LPGW lpgw);
 static void	Wnd_GetTextSize(HDC hdc, LPCSTR str, size_t len, int *cx, int *cy);
+static void GetPlotRect(LPGW lpgw, LPRECT rect);
 static void	MakeFonts(LPGW lpgw, LPRECT lprect, HDC hdc);
 static void	DestroyFonts(LPGW lpgw);
 static void	SetFont(LPGW lpgw, HDC hdc);
 static void	SelFont(LPGW lpgw);
 static void	dot(HDC hdc, int xdash, int ydash);
+static unsigned int WDPROC GraphGetTextLength(LPGW lpgw, HDC hdc, LPCSTR text);
+static void draw_enhanced_text(LPGW lpgw, HDC hdc, LPRECT rect, int x, int y, char * str);
+static void draw_text_justify(HDC hdc, int justify);
+static void draw_put_text(LPGW lpgw, HDC hdc, int x, int y, char * str);
 static void	drawgraph(LPGW lpgw, HDC hdc, LPRECT rect);
 static void	CopyClip(LPGW lpgw);
 static void	SaveAsEMF(LPGW lpgw);
 static void	CopyPrint(LPGW lpgw);
 static void	WriteGraphIni(LPGW lpgw);
-#if (0)	/* shige */
-static void	ReadGraphIni(LPGW lpgw);
-#endif
+static void ReadGraphIni(LPGW lpgw);
 static COLORREF	GetColor(HWND hwnd, COLORREF ref);
 static void	UpdateColorSample(HWND hdlg);
 static BOOL	LineStyle(LPGW lpgw);
+
 
 /* ================================== */
 
@@ -241,14 +245,14 @@ static void
 DestroyBlocks(LPGW lpgw)
 {
     struct GWOPBLK *this, *next;
-    struct GWOP FAR *gwop;
+    struct GWOP *gwop;
     unsigned int i;
 
 	this = lpgw->gwopblk_head;
 	while (this != NULL) {
 		next = this->next;
 		if (!this->gwop) {
-			this->gwop = (struct GWOP FAR *)GlobalLock(this->hblk);
+			this->gwop = (struct GWOP *)GlobalLock(this->hblk);
 		}
 		if (this->gwop) {
 			/* free all text strings within this block */
@@ -286,7 +290,7 @@ AddBlock(LPGW lpgw)
 	if (hblk == NULL)
 		return FALSE;
 	next->hblk = hblk;
-	next->gwop = (struct GWOP FAR *)NULL;
+	next->gwop = (struct GWOP *)NULL;
 	next->next = (struct GWOPBLK *)NULL;
 	next->used = 0;
 
@@ -296,12 +300,12 @@ AddBlock(LPGW lpgw)
 		lpgw->gwopblk_head = next;
 	} else {
 		this->next = next;
-		this->gwop = (struct GWOP FAR *)NULL;
+		this->gwop = (struct GWOP *)NULL;
 		GlobalUnlock(this->hblk);
 	}
 	lpgw->gwopblk_tail = next;
-	next->gwop = (struct GWOP FAR *)GlobalLock(next->hblk);
-	if (next->gwop == (struct GWOP FAR *)NULL)
+	next->gwop = (struct GWOP *)GlobalLock(next->hblk);
+	if (next->gwop == (struct GWOP *)NULL)
 		return FALSE;
 
 	return TRUE;
@@ -309,20 +313,20 @@ AddBlock(LPGW lpgw)
 
 
 void WDPROC
-GraphOp(LPGW lpgw, WORD op, WORD x, WORD y, LPCSTR str)
+GraphOp(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str)
 {
-    if (str)
-	GraphOpSize(lpgw, op, x, y, str, _fstrlen(str)+1);
-    else
-	GraphOpSize(lpgw, op, x, y, NULL, 0);
+	if (str)
+		GraphOpSize(lpgw, op, x, y, str, _fstrlen(str)+1);
+	else
+		GraphOpSize(lpgw, op, x, y, NULL, 0);
 }
 
 
 void WDPROC
-GraphOpSize(LPGW lpgw, WORD op, WORD x, WORD y, LPCSTR str, DWORD size)
+GraphOpSize(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str, DWORD size)
 {
 	struct GWOPBLK *this;
-	struct GWOP FAR *gwop;
+	struct GWOP *gwop;
 	char *npstr;
 
 	this = lpgw->gwopblk_tail;
@@ -351,7 +355,22 @@ GraphOpSize(LPGW lpgw, WORD op, WORD x, WORD y, LPCSTR str, DWORD size)
 
 /* ================================== */
 
-/* Prepare Graph window for being displayed by windows, read wgnuplot.ini, update
+/* Initialize the LPGW struct:
+ * set default values and read options from ini file */
+void WDPROC
+GraphInitStruct(LPGW lpgw)
+{
+	if (!lpgw->initialized) {
+		lpgw->initialized = TRUE;
+		lpgw->sampling = 1;
+		lpgw->fontscale = 1.;
+		lpgw->linewidth = 1.;
+		ReadGraphIni(lpgw);
+	}
+}
+
+
+/* Prepare Graph window for being displayed by windows, update
  * the window's menus and show it */
 void WDPROC
 GraphInit(LPGW lpgw)
@@ -364,7 +383,7 @@ GraphInit(LPGW lpgw)
 		wndclass.style = CS_HREDRAW | CS_VREDRAW;
 		wndclass.lpfnWndProc = WndGraphProc;
 		wndclass.cbClsExtra = 0;
-		wndclass.cbWndExtra = 2 * sizeof(void FAR *);
+		wndclass.cbWndExtra = 2 * sizeof(void *);
 		wndclass.hInstance = lpgw->hInstance;
 		wndclass.hIcon = LoadIcon(NULL, IDI_APPLICATION);
 		wndclass.hCursor = LoadCursor(NULL, IDC_ARROW);
@@ -374,21 +393,20 @@ GraphInit(LPGW lpgw)
 		RegisterClass(&wndclass);
 	}
 
-#if 0  /* shige */
-	ReadGraphIni(lpgw);
-#endif
-	lpgw->sampling = 1;
-
 	lpgw->hWndGraph = CreateWindow(szGraphClass, lpgw->Title,
 		WS_OVERLAPPEDWINDOW,
 		lpgw->Origin.x, lpgw->Origin.y,
 		lpgw->Size.x, lpgw->Size.y,
 		NULL, NULL, lpgw->hInstance, lpgw);
 
+	if (lpgw->hWndGraph)
+		SetClassLong(lpgw->hWndGraph, GCL_HICON,
+			(LONG) LoadIcon(lpgw->hInstance, "GRPICON"));
+
 	lpgw->hStatusbar = CreateWindowEx(0, STATUSCLASSNAME, (LPSTR)NULL,
 				  WS_CHILD | SBARS_SIZEGRIP,
-				  0, 0, 0, 0, 
-				  lpgw->hWndGraph, (HMENU)ID_GRAPHSTATUS, 
+				  0, 0, 0, 0,
+				  lpgw->hWndGraph, (HMENU)ID_GRAPHSTATUS,
 				  lpgw->hInstance, lpgw);
 	if (lpgw->hStatusbar) {
 	    RECT rect;
@@ -416,6 +434,10 @@ GraphInit(LPGW lpgw)
 		M_DOUBLEBUFFER, "&Double buffer");
 	AppendMenu(lpgw->hPopMenu, MF_STRING | (lpgw->oversample ? MF_CHECKED : MF_UNCHECKED),
 		M_OVERSAMPLE, "O&versampling");
+#ifdef HAVE_GDIPLUS
+	AppendMenu(lpgw->hPopMenu, MF_STRING | (lpgw->antialiasing ? MF_CHECKED : MF_UNCHECKED),
+		M_ANTIALIASING, "&Antialiasing");
+#endif
 	AppendMenu(lpgw->hPopMenu, MF_STRING, M_BACKGROUND, "&Background...");
 	AppendMenu(lpgw->hPopMenu, MF_STRING, M_CHOOSE_FONT, "Choose &Font...");
 	AppendMenu(lpgw->hPopMenu, MF_STRING, M_LINESTYLE, "&Line Styles...");
@@ -439,6 +461,7 @@ GraphInit(LPGW lpgw)
 
 	ShowWindow(lpgw->hWndGraph, SW_SHOWNORMAL);
 }
+
 
 /* close a graph window */
 void WDPROC
@@ -465,7 +488,7 @@ GraphStart(LPGW lpgw, double pointsize)
 {
 	lpgw->locked = TRUE;
 	DestroyBlocks(lpgw);
-        lpgw->org_pointsize = pointsize;
+	lpgw->org_pointsize = pointsize;
 	if ( !lpgw->hWndGraph || !IsWindow(lpgw->hWndGraph) )
 		GraphInit(lpgw);
 	if (IsIconic(lpgw->hWndGraph))
@@ -485,6 +508,7 @@ GraphStart(LPGW lpgw, double pointsize)
 	}
 }
 
+
 void WDPROC
 GraphEnd(LPGW lpgw)
 {
@@ -499,12 +523,14 @@ GraphEnd(LPGW lpgw)
 #endif
 }
 
+
 /* shige */
 void WDPROC
 GraphChangeTitle(LPGW lpgw)
 {
-	SetWindowText(lpgw->hWndGraph,lpgw->Title);
+	SetWindowText(lpgw->hWndGraph, lpgw->Title);
 }
+
 
 void WDPROC
 GraphResume(LPGW lpgw)
@@ -512,19 +538,22 @@ GraphResume(LPGW lpgw)
 	lpgw->locked = TRUE;
 }
 
+
 void WDPROC
 GraphPrint(LPGW lpgw)
 {
 	if (lpgw->hWndGraph && IsWindow(lpgw->hWndGraph))
-		SendMessage(lpgw->hWndGraph,WM_COMMAND,M_PRINT,0L);
+		SendMessage(lpgw->hWndGraph, WM_COMMAND, M_PRINT, 0L);
 }
+
 
 void WDPROC
 GraphRedraw(LPGW lpgw)
 {
 	if (lpgw->hWndGraph && IsWindow(lpgw->hWndGraph))
-		SendMessage(lpgw->hWndGraph,WM_COMMAND,M_REBUILDTOOLS,0L);
+		SendMessage(lpgw->hWndGraph, WM_COMMAND, M_REBUILDTOOLS, 0L);
 }
+
 /* ================================== */
 
 /* Helper functions for bookkeeping of pens, brushes and fonts */
@@ -534,7 +563,7 @@ GraphRedraw(LPGW lpgw)
 static void
 StorePen(LPGW lpgw, int i, COLORREF ref, int colorstyle, int monostyle)
 {
-	LOGPEN FAR *plp;
+	LOGPEN *plp;
 
 	plp = &lpgw->colorpen[i];
 	plp->lopnColor = ref;
@@ -559,6 +588,7 @@ StorePen(LPGW lpgw, int i, COLORREF ref, int colorstyle, int monostyle)
 	plp->lopnWidth.y = 0;
 }
 
+
 /* Prepare pens and brushes (--> colors) for use by the driver. Pens are (now) created
  * on-the-fly (--> DeleteObject(SelectObject(...)) idiom), but the brushes are still
  * all created statically, and kept until the window is closed */
@@ -566,34 +596,28 @@ static void
 MakePens(LPGW lpgw, HDC hdc)
 {
 	int i;
+	LOGPEN pen;
 
 	if ((GetDeviceCaps(hdc,NUMCOLORS) == 2) || !lpgw->color) {
-		lpgw->hapen = CreatePenIndirect((LOGPEN FAR *)&lpgw->monopen[1]); 	/* axis */
+		pen = lpgw->monopen[1];
+		pen.lopnWidth.x *= lpgw->linewidth * lpgw->sampling;
+		lpgw->hapen = CreatePenIndirect(&pen); 	/* axis */
 		lpgw->hbrush = CreateSolidBrush(RGB(255,255,255));
-		for (i=0; i<WGNUMPENS+2; i++)
+		for (i = 0; i < WGNUMPENS + 2; i++)
 			lpgw->colorbrush[i] = CreateSolidBrush(RGB(0,0,0));
 	} else {
-		lpgw->hapen = CreatePenIndirect((LOGPEN FAR *)&lpgw->colorpen[1]); 	/* axis */
+		pen = lpgw->colorpen[1];
+		pen.lopnWidth.x *= lpgw->linewidth * lpgw->sampling;
+		lpgw->hapen = CreatePenIndirect(&pen); 	/* axis */
 		lpgw->hbrush = CreateSolidBrush(lpgw->background);
-		for (i=0; i<WGNUMPENS+2; i++)
+		for (i = 0; i < WGNUMPENS + 2; i++)
 			lpgw->colorbrush[i] = CreateSolidBrush(lpgw->colorpen[i].lopnColor);
 	}
+	lpgw->hnull = CreatePen(PS_NULL, 0, 0); /* border for filled areas */
 
 	/* build pattern brushes for filled boxes (ULIG) */
 	if( ! brushes_initialized ) {
 		int i;
-
-		for(i=0; i < halftone_num; i++) {
-			halftone_bitdata[i].bmType       = 0;
-			halftone_bitdata[i].bmWidth      = 16;
-			halftone_bitdata[i].bmHeight     = 8;
-			halftone_bitdata[i].bmWidthBytes = 2;
-			halftone_bitdata[i].bmPlanes     = 1;
-			halftone_bitdata[i].bmBitsPixel  = 1;
-			halftone_bitdata[i].bmBits       = halftone_bitmaps[i];
-			halftone_bitmap[i] = CreateBitmapIndirect(&halftone_bitdata[i]);
-			halftone_brush[i] = CreatePatternBrush(halftone_bitmap[i]);
-		}
 
 		for(i=0; i < pattern_num; i++) {
 			pattern_bitdata[i].bmType       = 0;
@@ -611,6 +635,7 @@ MakePens(LPGW lpgw, HDC hdc)
 	}
 }
 
+
 /* Undo effect of MakePens(). To be called just before the window is closed. */
 static void
 DestroyPens(LPGW lpgw)
@@ -619,18 +644,16 @@ DestroyPens(LPGW lpgw)
 
 	DeleteObject(lpgw->hbrush);
 	DeleteObject(lpgw->hapen);
+	DeleteObject(lpgw->hsolid);
 	for (i=0; i<WGNUMPENS+2; i++)
 		DeleteObject(lpgw->colorbrush[i]);
+	DeleteObject(lpgw->hnull);
 
-	/* delete brushes used for boxfilling (ULIG) */
-	if( brushes_initialized ) {
+	/* delete brushes used for filled areas */
+	if (brushes_initialized) {
 		int i;
 
-		for( i=0; i<halftone_num; i++ ) {
-			DeleteObject(halftone_bitmap[i]);
-			DeleteObject(halftone_brush[i]);
-		}
-		for( i=0; i<pattern_num; i++ ) {
+		for (i = 0; i < pattern_num; i++) {
 			DeleteObject(pattern_bitmap[i]);
 			DeleteObject(pattern_brush[i]);
 		}
@@ -647,13 +670,13 @@ Wnd_GetTextSize(HDC hdc, LPCSTR str, size_t len, int *cx, int *cy)
 {
 	SIZE size;
 
-	GetTextExtentPoint(hdc, str, len, &size);
+	GetTextExtentPoint32(hdc, str, len, &size);
 	*cx = size.cx;
 	*cy = size.cy;
 }
 
 
-void 
+static void
 GetPlotRect(LPGW lpgw, LPRECT rect)
 {
 	GetClientRect(lpgw->hWndGraph, rect);
@@ -661,38 +684,36 @@ GetPlotRect(LPGW lpgw, LPRECT rect)
 	if (rect->bottom < rect->top) rect->bottom = rect->top;
 }
 
-static void 
+
+static void
 GetPlotRectInMM(LPGW lpgw, LPRECT rect, HDC hdc)
 {
 	int iWidthMM, iHeightMM, iWidthPels, iHeightPels;
 
 	GetPlotRect (lpgw, rect);
-	
-	/* Taken from 
+
+	/* Taken from
 	http://msdn.microsoft.com/en-us/library/dd183519(VS.85).aspx
 	 */
-	
-	// Determine the picture frame dimensions.  
-	// iWidthMM is the display width in millimeters.  
-	// iHeightMM is the display height in millimeters.  
-	// iWidthPels is the display width in pixels.  
-	// iHeightPels is the display height in pixels  
-	
-	iWidthMM = GetDeviceCaps(hdc, HORZSIZE); 
-	iHeightMM = GetDeviceCaps(hdc, VERTSIZE); 
-	iWidthPels = GetDeviceCaps(hdc, HORZRES); 
-	iHeightPels = GetDeviceCaps(hdc, VERTRES); 
-	
-	// Convert client coordinates to .01-mm units.  
-	// Use iWidthMM, iWidthPels, iHeightMM, and  
-	// iHeightPels to determine the number of  
-	// .01-millimeter units per pixel in the x-  
-	//  and y-directions.  
-	
-	rect->left = (rect->left * iWidthMM * 100)/iWidthPels; 
-	rect->top = (rect->top * iHeightMM * 100)/iHeightPels; 
-	rect->right = (rect->right * iWidthMM * 100)/iWidthPels; 
-	rect->bottom = (rect->bottom * iHeightMM * 100)/iHeightPels; 
+	// Determine the picture frame dimensions.
+	// iWidthMM is the display width in millimeters.
+	// iHeightMM is the display height in millimeters.
+	// iWidthPels is the display width in pixels.
+	// iHeightPels is the display height in pixels
+	iWidthMM = GetDeviceCaps(hdc, HORZSIZE);
+	iHeightMM = GetDeviceCaps(hdc, VERTSIZE);
+	iWidthPels = GetDeviceCaps(hdc, HORZRES);
+	iHeightPels = GetDeviceCaps(hdc, VERTRES);
+
+	// Convert client coordinates to .01-mm units.
+	// Use iWidthMM, iWidthPels, iHeightMM, and
+	// iHeightPels to determine the number of
+	// .01-millimeter units per pixel in the x-
+	//  and y-directions.
+	rect->left = (rect->left * iWidthMM * 100) / iWidthPels;
+	rect->top = (rect->top * iHeightMM * 100) / iHeightPels;
+	rect->right = (rect->right * iWidthMM * 100) / iWidthPels;
+	rect->bottom = (rect->bottom * iHeightMM * 100) / iHeightPels;
 }
 
 
@@ -702,13 +723,13 @@ MakeFonts(LPGW lpgw, LPRECT lprect, HDC hdc)
 	HFONT hfontold;
 	TEXTMETRIC tm;
 	int result;
-	char FAR *p;
+	char *p;
 	int cx, cy;
 
 	lpgw->rotate = FALSE;
 	_fmemset(&(lpgw->lf), 0, sizeof(LOGFONT));
 	_fstrncpy(lpgw->lf.lfFaceName,lpgw->fontname,LF_FACESIZE);
-	lpgw->lf.lfHeight = -MulDiv(lpgw->fontsize, GetDeviceCaps(hdc, LOGPIXELSY), 72) * lpgw->sampling;
+	lpgw->lf.lfHeight = -MulDiv(lpgw->fontsize * lpgw->fontscale, GetDeviceCaps(hdc, LOGPIXELSY), 72) * lpgw->sampling;
 	lpgw->lf.lfCharSet = DEFAULT_CHARSET;
 	if ( (p = _fstrstr(lpgw->fontname," Italic")) != (LPSTR)NULL ) {
 		lpgw->lf.lfFaceName[ (unsigned int)(p-lpgw->fontname) ] = '\0';
@@ -720,19 +741,20 @@ MakeFonts(LPGW lpgw, LPRECT lprect, HDC hdc)
 	}
 	lpgw->lf.lfOutPrecision = OUT_OUTLINE_PRECIS;
 	lpgw->lf.lfClipPrecision = CLIP_DEFAULT_PRECIS;
-	/* ClearType quality is only supported on XP or later */ 
-	lpgw->lf.lfQuality = IsWindowsXPorLater() ? CLEARTYPE_QUALITY : PROOF_QUALITY;
+	/* ClearType quality is only supported on XP or later */
+	lpgw->lf.lfQuality = 
+		IsWindowsXPorLater() && lpgw->antialiasing ? CLEARTYPE_QUALITY : PROOF_QUALITY;
 
 	if (lpgw->hfonth == 0) {
-		lpgw->hfonth = CreateFontIndirect((LOGFONT FAR *)&(lpgw->lf));
+		lpgw->hfonth = CreateFontIndirect((LOGFONT *)&(lpgw->lf));
 	}
 
 	/* we do need a 90 degree font */
-	if (lpgw->hfontv) 
+	if (lpgw->hfontv)
 		DeleteObject(lpgw->hfontv);
 	lpgw->lf.lfEscapement = 900;
 	lpgw->lf.lfOrientation = 900;
-	lpgw->hfontv = CreateFontIndirect((LOGFONT FAR *)&(lpgw->lf));
+	lpgw->hfontv = CreateFontIndirect(&(lpgw->lf));
 
 	/* save text size */
 	hfontold = SelectObject(hdc, lpgw->hfonth);
@@ -741,15 +763,15 @@ MakeFonts(LPGW lpgw, LPRECT lprect, HDC hdc)
 	lpgw->hchar = MulDiv(cx/10,lpgw->xmax,lprect->right - lprect->left);
 
 	/* CMW: Base tick size on character size */
-	lpgw->htic = lpgw->hchar / 2;
-	cy = MulDiv(cx/20, GetDeviceCaps(hdc, LOGPIXELSY), GetDeviceCaps(hdc, LOGPIXELSX));
-	lpgw->vtic = MulDiv(cy,lpgw->ymax,lprect->bottom - lprect->top);
+	lpgw->htic = MulDiv(lpgw->hchar, 2, 5);
+	cy = MulDiv(cx/10, 2*GetDeviceCaps(hdc, LOGPIXELSY), 5*GetDeviceCaps(hdc, LOGPIXELSX));
+	lpgw->vtic = MulDiv(cy, lpgw->ymax, lprect->bottom - lprect->top);
 	/* find out if we can rotate text 90deg */
 	SelectObject(hdc, lpgw->hfontv);
 	result = GetDeviceCaps(hdc, TEXTCAPS);
 	if ((result & TC_CR_90) || (result & TC_CR_ANY))
 		lpgw->rotate = TRUE;
-	GetTextMetrics(hdc,(TEXTMETRIC FAR *)&tm);
+	GetTextMetrics(hdc,(TEXTMETRIC *)&tm);
 	if (tm.tmPitchAndFamily & TMPF_VECTOR)
 		lpgw->rotate = TRUE;	/* vector fonts can all be rotated */
 	if (tm.tmPitchAndFamily & TMPF_TRUETYPE)
@@ -757,6 +779,7 @@ MakeFonts(LPGW lpgw, LPRECT lprect, HDC hdc)
 	SelectObject(hdc, hfontold);
 	return;
 }
+
 
 static void
 DestroyFonts(LPGW lpgw)
@@ -772,22 +795,22 @@ DestroyFonts(LPGW lpgw)
 	return;
 }
 
+
 static void
 SetFont(LPGW lpgw, HDC hdc)
 {
-    if (lpgw->rotate && lpgw->angle) {
-	if (lpgw->hfontv)
-	    DeleteObject(lpgw->hfontv);
-	lpgw->lf.lfEscapement = lpgw->lf.lfOrientation  = lpgw->angle * 10;
-	lpgw->hfontv = CreateFontIndirect((LOGFONT FAR *)&(lpgw->lf));
-	if (lpgw->hfontv)
-	    SelectObject(hdc, lpgw->hfontv);
-    } else {
-	if (lpgw->hfonth)
-	    SelectObject(hdc, lpgw->hfonth);
-    }
-    return;
+	SelectObject(hdc, lpgw->hfonth);
+	if (lpgw->rotate && lpgw->angle) {
+		if (lpgw->hfontv)
+			DeleteObject(lpgw->hfontv);
+		lpgw->lf.lfEscapement = lpgw->lf.lfOrientation  = lpgw->angle * 10;
+		lpgw->hfontv = CreateFontIndirect(&(lpgw->lf));
+		if (lpgw->hfontv)
+			SelectObject(hdc, lpgw->hfontv);
+	}
+	return;
 }
+
 
 static void
 SelFont(LPGW lpgw)
@@ -796,7 +819,7 @@ SelFont(LPGW lpgw)
 	CHOOSEFONT cf;
 	HDC hdc;
 	char lpszStyle[LF_FACESIZE];
-	char FAR *p;
+	char *p;
 
 	/* Set all structure fields to zero. */
 	_fmemset(&cf, 0, sizeof(CHOOSEFONT));
@@ -831,8 +854,6 @@ SelFont(LPGW lpgw)
 		strcpy(lpgw->deffontname,lpgw->fontname);
 		lpgw->deffontsize = lpgw->fontsize;
 		SendMessage(lpgw->hWndGraph,WM_COMMAND,M_REBUILDTOOLS,0L);
-		/* DBT 2010-02-22 replot to force immediate font change, volatile data OK */
-		do_string_replot("");
 	}
 }
 
@@ -843,6 +864,9 @@ UnicodeText(const char *str, enum set_encoding_id encoding)
     UINT codepage = 0;
     LPWSTR textw = NULL;
 
+    /* For a list of code page identifiers see
+       http://msdn.microsoft.com/en-us/library/dd317756%28v=vs.85%29.aspx
+    */
     switch (encoding) {
         case S_ENC_ISO8859_1:  codepage = 28591; break;
         case S_ENC_ISO8859_2:  codepage = 28592; break;
@@ -852,6 +876,7 @@ UnicodeText(const char *str, enum set_encoding_id encoding)
         case S_ENC_CP850:      codepage =   850; break;
         case S_ENC_CP852:      codepage =   852; break;
         case S_ENC_CP950:      codepage =   950; break;
+        case S_ENC_CP1250:     codepage =  1250; break;
         case S_ENC_CP1251:     codepage =  1251; break;
         case S_ENC_CP1254:     codepage =  1254; break;
         case S_ENC_KOI8_R:     codepage = 20866; break;
@@ -910,47 +935,376 @@ dot(HDC hdc, int xdash, int ydash)
 }
 
 
+static unsigned int WDPROC
+GraphGetTextLength(LPGW lpgw, HDC hdc, LPCSTR text)
+{
+    SIZE size;
+    LPWSTR textw;
+
+    textw = UnicodeText(text, encoding);
+    if (textw) {
+        GetTextExtentPoint32W(hdc, textw, wcslen(textw), &size);
+        free(textw);
+    } else
+        GetTextExtentPoint32(hdc, text, strlen(text), &size);
+    size.cx += GetTextCharacterExtra(hdc);
+    return size.cx;
+}
+
+
+void WDPROC
+GraphEnhancedOpen(char *fontname, double fontsize, double base,
+    BOOL widthflag, BOOL showflag, int overprint)
+{
+	static const int win_scale = -1; /* scaling of base offset */
+	char *fontstring;
+
+	/* There are two special cases:
+	 * overprint = 3 means save current position
+	 * overprint = 4 means restore saved position
+	 */
+	if (overprint == 3) {
+		enhstate.xsave = enhstate.x;
+		enhstate.ysave = enhstate.y;
+		return;
+	} else if (overprint == 4) {
+		enhstate.x = enhstate.xsave;
+		enhstate.y = enhstate.ysave;
+		return;
+	}
+
+	if (!enhstate.opened_string) {
+		/* Start new text fragment */
+		enhstate.opened_string = TRUE;
+		enhanced_cur_text = enhanced_text;
+		/* Keep track of whether we are supposed to show this string */
+		enhstate.show = showflag;
+		/* 0/1/2  no overprint / 1st pass / 2nd pass */
+		enhstate.overprint = overprint;
+		/* widthflag FALSE means do not update text position after printing */
+		enhstate.widthflag = widthflag;
+		/* Select font */
+		if ((fontname != NULL) && (strlen(fontname) > 0))
+			fontstring = fontname;
+		else
+			fontstring = enhstate.lpgw->deffontname;
+		strcpy(enhstate.fontname, fontstring);
+		enhstate.fontsize = fontsize;
+		GraphChangeFont(enhstate.lpgw, enhstate.fontname, enhstate.fontsize,
+		                enhstate.hdc, *(enhstate.rect));
+		SetFont(enhstate.lpgw, enhstate.hdc);
+
+		/* Scale fractional font height to vertical units of display */
+		/* FIXME:
+			Font scaling is not done properly (yet) and will lead to
+			non-optimal results for most font and size selections.
+			OUTLINEFONTMETRICS could be used for better results here.
+		*/
+		enhstate.base = win_scale * base * enhstate.lpgw->sampling * enhstate.lpgw->fontscale;
+	}
+}
+
+
+void WDPROC
+GraphEnhancedFlush(void)
+{
+	int width, height;
+	unsigned int x, y, len;
+	double angle = M_PI/180. * enhstate.lpgw->angle;
+
+	if (!enhstate.opened_string) return;
+	*enhanced_cur_text = '\0';
+
+	/* print the string fragment, perhaps invisibly */
+	/* NB: base expresses offset from current y pos */
+	x = enhstate.x - enhstate.base * sin(angle);
+	y = enhstate.y + enhstate.base * cos(angle);
+
+	/* calculate length of string first */
+	len = GraphGetTextLength(enhstate.lpgw, enhstate.hdc, enhanced_text);
+	width = cos(angle) * len;
+	height = -sin(angle) * len;
+
+	/* display string */
+	if (enhstate.show && !enhstate.sizeonly)
+		draw_put_text(enhstate.lpgw, enhstate.hdc, x, y, enhanced_text);
+
+	/* update drawing position according to len */
+	if (!enhstate.widthflag) {
+		width = 0;
+		height = 0;
+	}
+	if (enhstate.sizeonly) {
+		/* This is the first pass for justified printing.        */
+		/* We just adjust the starting position for second pass. */
+		if (enhstate.lpgw->justify == RIGHT) {
+			enhstate.x -= width;
+			enhstate.y -= height;
+		}
+		else if (enhstate.lpgw->justify == CENTRE) {
+			enhstate.x -= width / 2;
+			enhstate.y -= height / 2;
+		}
+		/* nothing to do for LEFT justified text */
+	} else if (enhstate.overprint == 1) {
+		/* Save current position */
+		enhstate.xsave = enhstate.x + width;
+		enhstate.ysave = enhstate.y + height;
+		/* First pass of overprint, leave position in center of fragment */
+		enhstate.x += width / 2;
+		enhstate.y += height / 2;
+	} else if (enhstate.overprint == 2) {
+		/* Restore current position,                          */
+		/* this sets the position behind the overprinted text */
+		enhstate.x = enhstate.xsave;
+		enhstate.y = enhstate.ysave;
+	} else {
+		/* Normal case is to update position to end of fragment */
+		enhstate.x += width;
+		enhstate.y += height;
+	}
+	enhstate.opened_string = FALSE;
+}
+
+
+static void
+draw_enhanced_text(LPGW lpgw, HDC hdc, LPRECT rect, int x, int y, char * str)
+{
+	char * original_string = str;
+	unsigned int pass, num_passes;
+	struct termentry *tsave;
+	char save_fontname[MAXFONTNAME];
+	int save_fontsize;
+
+	/* Init enhanced text state */
+	enhstate.lpgw = lpgw;
+	enhstate.hdc = hdc;
+	enhstate.rect = rect;
+	enhstate.opened_string = FALSE;
+	strcpy(enhstate.fontname, lpgw->fontname);
+	enhstate.fontsize = lpgw->fontsize;
+	/* Store the start position */
+	enhstate.x = x;
+	enhstate.y = y;
+
+	/* Save font information */
+	strcpy(save_fontname, lpgw->fontname);
+	save_fontsize = lpgw->fontsize;
+
+	/* Set up global variables needed by enhanced_recursion() */
+	enhanced_fontscale = 1.0;
+	strncpy(enhanced_escape_format, "%c", sizeof(enhanced_escape_format));
+
+	/* Text justification requires two passes. During the first pass we */
+	/* don't draw anything, we just measure the space it will take.     */
+	/* Without justification one pass is enough                         */
+	if (enhstate.lpgw->justify == LEFT) {
+		num_passes = 1;
+	} else {
+		num_passes = 2;
+		enhstate.sizeonly = TRUE;
+	}
+
+	/* we actually print everything left to right */
+	SetTextAlign(hdc, TA_LEFT|TA_BASELINE);
+	/* adjust baseline accordingly */
+	{
+		TEXTMETRIC tm;
+		if (GetTextMetrics(hdc, &tm)) {
+			int shift = tm.tmHeight/2 - tm.tmDescent;
+			enhstate.x += sin(lpgw->angle * M_PI/180) * shift;
+			enhstate.y += cos(lpgw->angle * M_PI/180) * shift;
+		}
+	}
+
+	/* enhanced_recursion() uses the callback functions
+	   of the current terminal. So we have to temporarily
+	   switch terminal. */
+	if (WIN_term) {
+		tsave = term;
+		term = WIN_term;
+	}
+
+	for (pass = 1; pass <= num_passes; pass++) {
+		/* Set the recursion going. We say to keep going until a
+		* closing brace, but we don't really expect to find one.
+		* If the return value is not the nul-terminator of the
+		* string, that can only mean that we did find an unmatched
+		* closing brace in the string. We increment past it (else
+		* we get stuck in an infinite loop) and try again.
+		*/
+		while (*(str = enhanced_recursion((char *)str, TRUE,
+				save_fontname, save_fontsize,
+				0.0, TRUE, TRUE, 0))) {
+			GraphEnhancedFlush();
+			if (!*++str)
+				break; /* end of string */
+			/* else carry on and process the rest of the string */
+		}
+
+		/* In order to do text justification we need to do a second pass that */
+		/* uses information stored during the first pass.                     */
+		/* see GraphEnhancedFlush()                                           */
+		if (pass == 1) {
+			/* do the actual printing in the next pass */
+			enhstate.sizeonly = FALSE;
+			str = original_string;
+		}
+	}
+
+	/* restore terminal */
+	if (WIN_term) term = tsave;
+
+	/* restore previous font */
+	GraphChangeFont(lpgw, save_fontname, save_fontsize, hdc, *rect);
+	SetFont(lpgw, hdc);
+
+	/* restore text alignment */
+	draw_text_justify(hdc, enhstate.lpgw->justify);
+}
+
+
+static void
+draw_text_justify(HDC hdc, int justify)
+{
+	switch (justify)
+	{
+		case LEFT:
+			SetTextAlign(hdc, TA_LEFT|TA_BOTTOM);
+			break;
+		case RIGHT:
+			SetTextAlign(hdc, TA_RIGHT|TA_BOTTOM);
+			break;
+		case CENTRE:
+			SetTextAlign(hdc, TA_CENTER|TA_BOTTOM);
+			break;
+	}
+}
+
+
+static void
+draw_put_text(LPGW lpgw, HDC hdc, int x, int y, char * str)
+{
+	SetBkMode(hdc, TRANSPARENT);
+
+	/* support text encoding */
+	if ((encoding == S_ENC_DEFAULT) || (encoding == S_ENC_INVALID)) {
+		TextOut(hdc, x, y, str, lstrlen(str));
+	} else {
+		LPWSTR textw = UnicodeText(str, encoding);
+		if (textw) {
+			TextOutW(hdc, x, y, textw, wcslen(textw));
+			free(textw);
+		} else {
+			/* print this only once */
+			if (encoding != lpgw->encoding_error) {
+				fprintf(stderr, "windows terminal: encoding %s not supported\n", encoding_names[encoding]);
+				lpgw->encoding_error = encoding;
+			}
+			/* fall back to standard encoding */
+			TextOut(hdc, x, y, str, strlen(str));
+		}
+	}
+	SetBkMode(hdc, OPAQUE);
+}
+
+
+static void
+draw_new_pens(LPGW lpgw, HDC hdc, LOGPEN cur_penstruct)
+{
+	HPEN old_hapen = lpgw->hapen;
+	HPEN old_hsolid = lpgw->hsolid;
+
+	if (cur_penstruct.lopnWidth.x <= 1) {
+		/* shige: work-around for Windows clipboard bug */
+		lpgw->hapen = CreatePenIndirect((LOGPEN *) &cur_penstruct);
+		lpgw->hsolid = CreatePen(PS_SOLID, 1, cur_penstruct.lopnColor);
+	} else {
+		LOGBRUSH lb;
+		lb.lbStyle = BS_SOLID;
+		lb.lbColor = cur_penstruct.lopnColor;
+		lpgw->hapen = ExtCreatePen(
+			PS_GEOMETRIC | cur_penstruct.lopnStyle | PS_ENDCAP_FLAT | PS_JOIN_BEVEL,
+			cur_penstruct.lopnWidth.x, &lb, 0, 0);
+		lpgw->hsolid = ExtCreatePen(
+			PS_GEOMETRIC | PS_SOLID | PS_ENDCAP_FLAT | PS_JOIN_BEVEL,
+			cur_penstruct.lopnWidth.x, &lb, 0, 0);
+	}
+
+	SelectObject(hdc, lpgw->hapen);
+	DeleteObject(old_hapen);
+	DeleteObject(old_hsolid);
+}
+
+
+static void
+draw_new_brush(LPGW lpgw, HDC hdc, COLORREF color)
+{
+	HBRUSH new_brush = CreateSolidBrush(color);
+	SelectObject(hdc, new_brush);
+	if (lpgw->hcolorbrush)
+		DeleteObject(lpgw->hcolorbrush);
+	lpgw->hcolorbrush = new_brush;
+}
+
+
 /* This one is really the heart of this module: it executes the stored set of
  * commands, whenever it changed or a redraw is necessary */
 static void
 drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 {
-    int xdash, ydash;			/* the transformed coordinates */
-    int rr, rl, rt, rb;
-    struct GWOP FAR *curptr;
-    struct GWOPBLK *blkptr;
-    int htic, vtic;
-    int hshift, vshift;
-    unsigned int lastop=-1;		/* used for plotting last point on a line */
-    int pen;
-    int polymax = 200;
-    int polyi = 0;
-    POINT *ppt;
-    unsigned int ngwop=0;
-    BOOL isColor;
-    int sampling = lpgw->sampling;
-    double line_width = 1.0 * sampling;
-    unsigned int fillstyle = 0.0;
-    int idx;
-    COLORREF last_color = 0;
-    static BOOL encoding_error = false;
+	/* draw ops */
+	unsigned int ngwop = 0;
+	struct GWOP *curptr;
+	struct GWOPBLK *blkptr;
 
-    if (lpgw->locked)
-	return;
+	/* colors */
+	BOOL isColor;				/* use colors? */
+	COLORREF last_color = 0;	/* currently selected color */
+
+	/* lines */
+	double line_width = lpgw->sampling * lpgw->linewidth;	/* current line width */
+	LOGPEN cur_penstruct;				/* current pen settings */
+
+	/* polylines and polygons */
+	int polymax = 200;			/* size of ppt */
+	int polyi = 0;				/* number of points in ppt */
+	POINT *ppt;					/* storage of polyline/polygon-points */
+	unsigned int lastop=-1;		/* used for plotting last point on a line */
+
+	/* filled polygons and boxes */
+	unsigned int fillstyle = 0;	/* current fill style */
+	BOOL transparent = FALSE;	/* transparent fill? */
+	double alpha = 0.;			/* alpha for transarency */
+	int pattern = 0;			/* patter number */
+	COLORREF fill_color = 0;	/* color to use for fills */
+	HBRUSH solid_brush = 0;		/* current solid fill brush */
+
+	/* images */
+	int seq = 0;				/* sequence counter for W_image ops */
+	POINT corners[4];			/* image corners */
+	int color_mode = 0;			/* image color mode */
+
+	/* coordinates and lengths */
+	int xdash, ydash;			/* the transformed coordinates */
+	int rr, rl, rt, rb;			/* coordinates of drawing area */
+	int htic, vtic;				/* tic sizes */
+	int hshift, vshift;			/* correction of text position */
+
+    if (lpgw->locked) return;
 
     /* HBB 20010218: the GDI status query functions don't work on Metafile
      * handles, so can't know whether the screen is actually showing
      * color or not, if drawgraph() is being called from CopyClip().
      * Solve by defaulting isColor to 1 if hdc is a metafile. */
-    isColor = (((GetDeviceCaps(hdc, PLANES) * GetDeviceCaps(hdc,BITSPIXEL))
-		> 2)
+    isColor = (((GetDeviceCaps(hdc, PLANES) * GetDeviceCaps(hdc,BITSPIXEL))	> 2)
 	       || (GetDeviceCaps(hdc, TECHNOLOGY) == DT_METAFILE));
 
     if (lpgw->color && isColor) {
-	SetBkColor(hdc, lpgw->background);
-	FillRect(hdc, rect, lpgw->hbrush);
+		SetBkColor(hdc, lpgw->background);
+		FillRect(hdc, rect, lpgw->hbrush);
     } else {
-	FillRect(hdc, rect, (HBRUSH)GetStockObject(WHITE_BRUSH));
+		FillRect(hdc, rect, (HBRUSH)GetStockObject(WHITE_BRUSH));
     }
 
     ppt = (POINT *)LocalAllocPtr(LHND, (polymax+1) * sizeof(POINT));
@@ -960,728 +1314,732 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
     rt = rect->top;
     rb = rect->bottom;
 
-    htic = sampling * (lpgw->org_pointsize*MulDiv(lpgw->htic, rr - rl, lpgw->xmax) + 1);
-    vtic = sampling * (lpgw->org_pointsize*MulDiv(lpgw->vtic, rb - rt, lpgw->ymax) + 1);
+    htic = (lpgw->org_pointsize * MulDiv(lpgw->htic, rr - rl, lpgw->xmax) + 1);
+    vtic = (lpgw->org_pointsize * MulDiv(lpgw->vtic, rb - rt, lpgw->ymax) + 1);
 
     lpgw->angle = 0;
     SetFont(lpgw, hdc);
-    SetTextAlign(hdc, TA_LEFT|TA_BASELINE);
- 
+    lpgw->justify = LEFT;
+    SetTextAlign(hdc, TA_LEFT|TA_BOTTOM);
+
     /* calculate text shifting for horizontal text */
     hshift = 0;
     vshift = MulDiv(lpgw->vchar, rb - rt, lpgw->ymax)/2;
-  
-    pen = 2;
-    SelectObject(hdc, lpgw->hapen);
-    SelectObject(hdc, lpgw->colorbrush[pen]);
+
+	SelectObject(hdc, lpgw->hapen); /* background brush */
+	SelectObject(hdc, lpgw->colorbrush[2]); /* first user pen */
 
     /* do the drawing */
     blkptr = lpgw->gwopblk_head;
     curptr = NULL;
     if (blkptr) {
-	if (!blkptr->gwop)
-	    blkptr->gwop = (struct GWOP FAR *)GlobalLock(blkptr->hblk);
-	if (!blkptr->gwop)
-	    return;
-	curptr = (struct GWOP FAR *)blkptr->gwop;
+		if (!blkptr->gwop)
+			blkptr->gwop = (struct GWOP *)GlobalLock(blkptr->hblk);
+		if (!blkptr->gwop)
+			return;
+		curptr = (struct GWOP *)blkptr->gwop;
     }
 
-    while(ngwop < lpgw->nGWOP) {
-	/* transform the coordinates */
-	xdash = MulDiv(curptr->x, rr-rl-1, lpgw->xmax) + rl;
-	ydash = MulDiv(curptr->y, rt-rb+1, lpgw->ymax) + rb - 1;
-	if ((lastop==W_vect) && (curptr->op!=W_vect)) {
-	    if (polyi >= 2) {
-		Polyline(hdc, ppt, polyi);
-		/* EAM - why isn't this a move to ppt[polyi-1] ? */
-		MoveTo(hdc, ppt[0].x, ppt[0].y);
-	    }
-	    /* EAM - I think this is not necessary */
-	    else if (polyi == 1)
-		LineTo(hdc, ppt[0].x, ppt[0].y);
-	    polyi = 0;
-	}
-	switch (curptr->op) {
-	case 0:	/* have run past last in this block */
-	    break;
-	case W_move:
-	    ppt[0].x = xdash;
-	    ppt[0].y = ydash;
-	    polyi = 1;
-	    break;
-	case W_vect:
-	    ppt[polyi].x = xdash;
-	    ppt[polyi].y = ydash;
-	    polyi++;
-	    if (polyi >= polymax) {
-		Polyline(hdc, ppt, polyi);
-		MoveTo(hdc, xdash, ydash);
-		ppt[0].x = xdash;
-		ppt[0].y = ydash;
-		polyi = 1;
-	    }
-	    break;
-	case W_line_type:
-	    {
-		LOGBRUSH lb;
-		LOGPEN cur_penstruct;
-		short cur_pen = curptr->x;
+    while (ngwop < lpgw->nGWOP) {
+		/* transform the coordinates */
+		xdash = MulDiv(curptr->x, rr-rl-1, lpgw->xmax) + rl;
+		ydash = MulDiv(curptr->y, rt-rb+1, lpgw->ymax) + rb - 1;
 
-		if (cur_pen >= WGNUMPENS)
-		    cur_pen = cur_pen % WGNUMPENS;
-		if (cur_pen <= LT_BACKGROUND) {
-		    cur_pen = 0;
-		    cur_penstruct = lpgw->colorpen[0];
-		    cur_penstruct.lopnColor = lpgw->background;
-		} else {
-		    cur_pen += 2;
-		    cur_penstruct =  (lpgw->color && isColor) ?  lpgw->colorpen[cur_pen] : lpgw->monopen[cur_pen];
-		}
-
-		if (line_width != 1)
-		    cur_penstruct.lopnWidth.x *= line_width;
-	
-		/* use ExtCreatePen instead of CreatePen/CreatePenIndirect
-		 * to support dashed lines if line_width > 1 */
-		lb.lbStyle = BS_SOLID;
-		lb.lbColor = cur_penstruct.lopnColor;
-
-		/* shige: work-around for Windows clipboard bug */
-		if (line_width==1)
-		  lpgw->hapen = CreatePenIndirect((LOGPEN FAR *) &cur_penstruct);
-		else
-		  lpgw->hapen = ExtCreatePen(
-		        PS_GEOMETRIC | cur_penstruct.lopnStyle | PS_ENDCAP_FLAT | PS_JOIN_BEVEL, 
-			cur_penstruct.lopnWidth.x, &lb, 0, 0);
-		DeleteObject(SelectObject(hdc, lpgw->hapen));
-
-		pen = cur_pen;
-		SelectObject(hdc, lpgw->colorbrush[pen]);
-		/* Text color is also used for pattern fill */
-		SetTextColor(hdc, last_color = cur_penstruct.lopnColor);
-	    }
-	break;
-
-	case W_put_text:
-	    {
-		char *str;
-		str = LocalLock(curptr->htext);
-		if (str) {
-		    /* shift correctly for rotated text */
-		    xdash += hshift;
-		    ydash += vshift;
-
-		    SetBkMode(hdc,TRANSPARENT);
-
-                    /* support text encoding */
-                    if ((encoding == S_ENC_DEFAULT) || (encoding == S_ENC_INVALID)) {
-                        TextOut(hdc, xdash, ydash, str, lstrlen(str));
-                    } else {
-                        LPWSTR textw = UnicodeText(str, encoding);
-                        if (textw) {
-                            TextOutW(hdc, xdash, ydash, textw, wcslen(textw));
-                            free(textw);
-                        } else {
-                            /* print this only once */
-                            if (!encoding_error) {
-                                fprintf(stderr, "windows terminal: encoding %s not supported\n", encoding_names[encoding]);
-                                encoding_error = TRUE;
-                            }
-                            /* fall back to standard encoding */
-                            TextOut(hdc, xdash, ydash, str, strlen(str));
-                        }
-                    }
-                    SetBkMode(hdc,OPAQUE);
-		}
-		LocalUnlock(curptr->htext);
-	    }
-	break;
-
-	case W_fillstyle:
-	    /* HBB 20010916: new entry, needed to squeeze the many
-	     * parameters of a filled box call through the bottlneck
-	     * of the fixed number of parameters in GraphOp() and
-	     * struct GWOP, respectively. */
-	    fillstyle = curptr->x;
-	    break;
-
-	case W_boxfill: {  /* ULIG */
-	    double alpha = 0.;
-	    BOOL transparent = FALSE;
-
-	    assert (polyi == 1);
-
-	    /* NOTE: the x and y passed with this call are the width and
-	     * height of the box, actually. The left corner was stored into
-	     * ppt[0] by a preceding W_move, and the style was memorized
-	     * by a W_fillstyle call. */
-	    switch(fillstyle & 0x0f) {
-		case FS_TRANSPARENT_SOLID:
-		    alpha = (fillstyle >> 4) / 100.;
-		    transparent = TRUE;
-		    /* intentionally fall through */
-		case FS_SOLID:
-		    /* style == 1 --> use halftone fill pattern
-		     * according to filldensity. Density is from
-		     * 0..100 percent: */
-		    idx = ((fillstyle >> 4) * (halftone_num - 1) / 100 );
-		    if (idx < 0)
-			idx = 0;
-		    if (idx > halftone_num - 1)
-			idx = halftone_num - 1;
-		    SelectObject(hdc, halftone_brush[idx]);
-		    break;
-		case FS_TRANSPARENT_PATTERN:
-		    transparent = TRUE;
-		    /* intentionally fall through */
-		case FS_PATTERN:
-		    /* style == 2 --> use fill pattern according to
-                     * fillpattern. Pattern number is enumerated */
-		    idx = fillstyle >> 4;
-		    if (idx < 0)
-			idx = 0;
-		    if (idx > pattern_num - 1)
-			idx = idx % pattern_num;
-		    SelectObject(hdc, pattern_brush[idx]);
-		    break;
-		case FS_DEFAULT:
-		    /* Leave the current brush in place */
-		    break;
-		case FS_EMPTY:
-		default:
-		    /* fill with background color */
-		    SelectObject(hdc, halftone_brush[0]);
-		    break;
-	    }
-
-	    xdash -= rl;
-	    ydash -= rb - 1;
-
-	    if (transparent) {
-		HDC memdc;
-		HBITMAP membmp, oldbmp;
-		BLENDFUNCTION ftn;
-		POINT p;
-		UINT32 width, height;
-		HBRUSH brush = NULL;
-
-		/* ydash is negative ... */
-		p.x = ppt[0].x; 
-		p.y = ppt[0].y + ydash;
-		width = xdash;
-		height = abs(ydash);
-
-		/* create memory device context for bitmap */
-		memdc = CreateCompatibleDC(hdc);
-
-		/* create standard bitmap, no alpha channel needed */
-		membmp = CreateCompatibleBitmap(hdc, xdash, abs(ydash));
-		oldbmp = (HBITMAP)SelectObject(memdc, membmp);
-
-		/* prepare memory context */
-		SetTextColor(memdc, last_color);
-		if ((fillstyle & 0x0f) == FS_TRANSPARENT_PATTERN)
-		    SelectObject(memdc, pattern_brush[idx]);
-		else {
-		    /* we don't know if we should use a colorbrush or a pm3d brush,
-		    so we create our own... */
-		    brush = CreateSolidBrush(last_color);
-		    SelectObject(memdc, brush);
-		}
-
-		/* draw into memory bitmap */
-		PatBlt(memdc, 0, 0, width, height, PATCOPY);
-
-		/* copy bitmap back */
-		if ((fillstyle & 0x0f) == FS_TRANSPARENT_PATTERN) {
-		    TransparentBlt(hdc, p.x, p.y, width, height, 
-		           memdc, 0, 0, width, height, 0x00ffffff); 
-		} else {
-		    ftn.AlphaFormat = 0; /* no alpha channel in bitmap */
-		    ftn.SourceConstantAlpha = (UCHAR)((1. - alpha) * 0xff); /* global alpha */
-		    ftn.BlendOp = AC_SRC_OVER;
-		    ftn.BlendFlags = 0;
-		    AlphaBlend(hdc, p.x, p.y, width, height, 
-		               memdc, 0, 0, width, height, ftn);
-		}
-
-		/* clean up */
-		if (brush) DeleteObject(brush);
-		SelectObject(memdc, oldbmp);
-		DeleteObject(membmp);
-		DeleteDC(memdc);
-	    } else {
-		PatBlt(hdc, ppt[0].x, ppt[0].y, xdash, ydash, PATCOPY);
-	    }
-	    polyi = 0;
-	    break;
-	}
-  	case W_text_angle:
- 	    if (lpgw->angle != (short int)curptr->x) {
- 		lpgw->angle = (short int)curptr->x;
- 		/* correctly calculate shifting of rotated text */
- 		hshift = sin(M_PI/180. * lpgw->angle) * MulDiv(lpgw->vchar, rr-rl, lpgw->xmax) / 2;
- 		vshift = cos(M_PI/180. * lpgw->angle) * MulDiv(lpgw->vchar, rb-rt, lpgw->ymax) / 2;
- 		SetFont(lpgw, hdc);
- 	    }
-	    break;
-	case W_justify:
-	    switch (curptr->x)
-		{
-		case LEFT:
-		    SetTextAlign(hdc, TA_LEFT|TA_BASELINE);
-		    break;
-		case RIGHT:
-		    SetTextAlign(hdc, TA_RIGHT|TA_BASELINE);
-		    break;
-		case CENTRE:
-		    SetTextAlign(hdc, TA_CENTER|TA_BASELINE);
-		    break;
-		}
-	    break;
-	case W_font: {
-		char *font;
-
-		font = LocalLock(curptr->htext);
-		if (font) {
-		    GraphChangeFont(lpgw, font, curptr->x, hdc, *rect);
-	            SetFont(lpgw, hdc);
-		}
-		LocalUnlock(curptr->htext);
-	    }
-	    break;
-	case W_pointsize:
-	    if (curptr->x != 0) {
-		double pointsize = curptr->x / 100.0;
-		htic = pointsize*MulDiv(lpgw->htic, rr-rl, lpgw->xmax) + 1;
-		vtic = pointsize*MulDiv(lpgw->vtic, rb-rt, lpgw->ymax) + 1;
-	    } else {
-		char *str;
-		str = LocalLock(curptr->htext);
-		if (str) {
-		    double pointsize;
-		    sscanf(str, "%lg", &pointsize);
-		    htic = lpgw->org_pointsize
-			* MulDiv(lpgw->htic, rr-rl, lpgw->xmax) + 1;
-		    vtic = lpgw->org_pointsize
-			* MulDiv(lpgw->vtic, rb-rt, lpgw->ymax) + 1;
-		}
-		LocalUnlock(curptr->htext);
-	    }
-	    break;
-	case W_line_width:
-	    /* HBB 20000813: this may look strange, but it ensures
-	     * that linewidth is exactly 1 iff it's in default
-	     * state */
-	    line_width = curptr->x == 100 ? 1 : (curptr->x / 100.0);
-	    line_width *= sampling;
-	    break;
-	case W_pm3d_setcolor:
-	    {
-		static HBRUSH last_pm3d_brush = NULL;
-		HBRUSH this_brush;
-		COLORREF c;
-		LOGPEN cur_penstruct;
-		LOGBRUSH lb;
-
-		/* distinguish gray values and RGB colors */
-		if (curptr->y == 0) {			/* TC_FRAC */
-		    rgb255_color rgb255;
-		    rgb255maxcolors_from_gray(curptr->x / (double)WIN_PAL_COLORS, &rgb255);
-		    c = RGB(rgb255.r, rgb255.g, rgb255.b);
-		}
-		else if (curptr->y == (TC_LT << 8)) {	/* TC_LT */
-		    short pen = curptr->x;
-		    if (pen > WGNUMPENS) pen = pen % WGNUMPENS;
-		    if (pen <= LT_BACKGROUND) {
-			pen = 1;
-			c = lpgw->background;
-		    } else {
-			pen += 2;
-			c = lpgw->colorpen[pen].lopnColor;
-		    }
-		}
-		else {					/* TC_RGB */
-		    c = RGB(curptr->y & 0xff, (curptr->x >> 8) & 0xff, curptr->x & 0xff);
-		}
-
-		/* Solid fill brush */
-		this_brush = CreateSolidBrush(c);
-		SelectObject(hdc, this_brush);
-		if (last_pm3d_brush != NULL)
-		    DeleteObject(last_pm3d_brush);
-		last_pm3d_brush = this_brush;
-
-		/* create new pen, too */
-		cur_penstruct = (lpgw->color && isColor) ?  lpgw->colorpen[pen] : lpgw->monopen[pen];
-		if (line_width != 1)
-		    cur_penstruct.lopnWidth.x *= line_width;
-		lb.lbStyle = BS_SOLID;
-		lb.lbColor = c;
-		/* shige: work-around for Windows clipboard bug */
-		if (line_width == 1) {
-		    cur_penstruct.lopnColor = c;
-		    lpgw->hapen = CreatePenIndirect((LOGPEN FAR *) &cur_penstruct);
-		} else
-		    lpgw->hapen = ExtCreatePen(
-			PS_GEOMETRIC | cur_penstruct.lopnStyle | PS_ENDCAP_FLAT | PS_JOIN_BEVEL, 
-			cur_penstruct.lopnWidth.x, &lb, 0, 0);
-		DeleteObject(SelectObject(hdc, lpgw->hapen));
-
-		/* set text color, which is also used for pattern fill */
-		SetTextColor(hdc, last_color = c);
-	    }
-	    break;
-	case W_pm3d_filled_polygon_pt:
-	    {
-		/* a point of the polygon is coming */
-		if (polyi >= polymax) {
-		    polymax += 200;
-		    ppt = (POINT *)LocalReAllocPtr(ppt, LHND, (polymax+1) * sizeof(POINT));
-		}
-		ppt[polyi].x = xdash;
-		ppt[polyi].y = ydash;
-		polyi++;
-	    }
-	    break;
-	case W_pm3d_filled_polygon_draw:
-	    {
-		BOOL transparent = FALSE;
-		double alpha = 0.;
-		fillstyle = curptr->y;
-
-		switch (fillstyle & 0x0f) {
-		    case FS_TRANSPARENT_SOLID:
-			alpha = (fillstyle >> 4) / 100.;
-			transparent = TRUE;
-			break;
-		    case FS_TRANSPARENT_PATTERN:
-			/* style == 2 --> use fill pattern according to
-			 * fillpattern. Pattern number is enumerated */
-			idx = max(fillstyle >> 4, 0);
-			if (idx > pattern_num - 1)
-			    idx = idx % pattern_num;
-			alpha = 1.;
-			transparent = TRUE;
-			break;
-		    default:
-			break;
-		}
-
-		/* end of point series --> draw polygon now */
-		if (!transparent) {
-		    Polygon(hdc, ppt, polyi);
-		} else {
-		    /* BM: To support transparent fill on Windows we draw the 
-		       polygon into a memory bitmap using a memory device context. 
-
-		       We then associate an alpha value to the bitmap and use 
-		       AlphaBlend() to copy the bitmap back.
-
-		       Note: we could probably simplify and speed up the case of 
-		       pattern fill by using TransparentBlt() instead.
-		    */
-		    HDC memdc;
-		    HBITMAP membmp, oldbmp;
-		    int minx, miny, maxx, maxy;
-		    UINT32 width, height;
-		    BITMAPINFO bmi;
-		    UINT32 *pvBits;
-		    int x, y, i;
-		    POINT * points;
-		    BLENDFUNCTION ftn;
-		    UINT32 uAlpha = (UCHAR)(0xff * alpha);
-		    /* FIXME: we always use white as inidicator for transparency 
-		       this will fail for last_color = white
-		    */
-		    UINT32 transparentColor = 0x00ffffff; /* white */
-		    HBRUSH brush = NULL;
-
-                    /* find minimum rectangle enclosing our polygon. */
-                    minx = maxx = ppt[0].x;
-                    miny = maxy = ppt[0].y;
-                    for (i = 1; i < polyi; i++) {
-                        minx = min(ppt[i].x, minx);
-                        miny = min(ppt[i].y, miny);
-                        maxx = max(ppt[i].x, maxx);
-                        maxy = max(ppt[i].y, maxy);
-                    }
-
-                    /* now shift polygon points to upper left corner */
-                    points = (POINT *)LocalAllocPtr(LHND, (polyi+1) * sizeof(POINT));
-                    for (i = 0; i < polyi; i++) {
-                        points[i].x = ppt[i].x - minx;
-                        points[i].y = ppt[i].y - miny;
-                    }
-
-                    /* create memory device context for bitmap */
-                    memdc = CreateCompatibleDC(hdc);
-
-                    /* create memory bitmap with alpha channel and minimal size */
-                    width  = maxx - minx;
-                    height = maxy - miny;
-                    ZeroMemory(&bmi, sizeof(BITMAPINFO));
-                    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-                    bmi.bmiHeader.biWidth = width;
-                    bmi.bmiHeader.biHeight = height;
-                    bmi.bmiHeader.biPlanes = 1;
-                    bmi.bmiHeader.biBitCount = 32;
-                    bmi.bmiHeader.biCompression = BI_RGB;
-                    bmi.bmiHeader.biSizeImage = width * height * 4;
-                    membmp = CreateDIBSection(memdc, &bmi, DIB_RGB_COLORS, (void **)&pvBits, NULL, 0x0);
-                    oldbmp = (HBITMAP)SelectObject(memdc, membmp);
-                    /* clear bitmap, could also do it via GDI */
-                    for (i = 0; i < width * height; i++)
-                        pvBits[i] = transparentColor;
-
-                    /* prepare the memory context */
-                    SetTextColor(memdc, last_color);
-                    SelectObject(memdc, lpgw->hapen);
-                    if ((fillstyle & 0x0f) == FS_TRANSPARENT_PATTERN)
-                        SelectObject(memdc, pattern_brush[idx]);
-		    else {
-			/* we don't know if we should use a colorbrush or a pm3d brush,
-			   so we create our own... */
-			brush = CreateSolidBrush(last_color);
-			SelectObject(memdc, brush);
-		    }
-
-                    /* finally, draw polygon */
-                    Polygon(memdc, points, polyi);
-                    
-                    /* add alpha channel to bitmap */
-                    /* Note: this is really a pre-scaled alpha channel, see MSDN.
-                       To make life easy we only use global transparency, see below */
-                   for (y = 0; y < height; y++) {
-                        for (x = 0; x < width; x++) {
-                            UINT32 pixel = pvBits[x + y * width];
-                            if (pixel == transparentColor)
-                                pvBits[x + y * width]  = 0x00000000; /* completely transparent */
-                            else 
-                                pvBits[x + y * width] |= 0xff000000; /* mark as completely opaque */
-                        }
-                    }
-
-                    /* copy to device with alpa blending */
-                    ftn.BlendOp = AC_SRC_OVER;
-                    ftn.BlendFlags = 0;
-                    ftn.AlphaFormat = AC_SRC_ALPHA; /* bitmap has an alpha channel */
-                    ftn.SourceConstantAlpha = uAlpha;
-                    AlphaBlend(hdc, minx, miny, width, height, 
-                               memdc, 0, 0, width, height, ftn);
-
-                    /* clean up */
-                    LocalFreePtr(points);
-		    if (brush) DeleteObject(brush);
-                    SelectObject(memdc, oldbmp);
-                    DeleteObject(membmp);
-                    DeleteDC(memdc);
-                }
-                polyi = 0;
-	    }
-	    break;
-	case W_image:
-	    {
-		/* Due to the structure of gwop in total 6 entries are needed.
-		   These static variables help to collect all the information
-		*/
-		static int seq = 0;  /* sequence counter */
-		static POINT corners[4];
-		static color_mode = 0;
-
-		if (seq == 0) {
-		    /* First OP contains only the color mode */
-		    color_mode = curptr->x;
-		} else if (seq < 5) {
-		    /* Next four OPs contain the `corner` array */
-		    corners[seq-1].x = xdash;
-		    corners[seq-1].y = ydash;
-		} else {
-		    /* The last OP contains the image and it's size */
-		    char *image;
-		    unsigned int width, height;
-		    int rc;
-
-		    width = curptr->x;
-		    height = curptr->y;
-		    image = LocalLock(curptr->htext);
-		    if (image) {
-			BITMAPINFO bmi;
-
-			ZeroMemory(&bmi, sizeof(BITMAPINFO));
-			bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-			bmi.bmiHeader.biWidth = width;
-			bmi.bmiHeader.biHeight = height;
-			bmi.bmiHeader.biPlanes = 1;
-			bmi.bmiHeader.biCompression = BI_RGB;
-
-			if (color_mode != IC_RGBA) {
-			    bmi.bmiHeader.biBitCount = 24;
-
-			    rc = StretchDIBits(hdc, 
-			        corners[2].x, corners[2].y, 
-			        corners[3].x - corners[2].x, corners[3].y - corners[2].y,
-			        0, 0, width, height,
-			        image, &bmi, DIB_RGB_COLORS, SRCCOPY);
-			} else {
-			    HDC memdc;
-			    HBITMAP membmp, oldbmp;
-			    UINT32 *pvBits;
-			    BLENDFUNCTION ftn;
-
-			    bmi.bmiHeader.biBitCount = 32;
-			    memdc = CreateCompatibleDC(hdc);
-			    membmp = CreateDIBSection(memdc, &bmi, DIB_RGB_COLORS, (void **)&pvBits, NULL, 0x0);
-			    oldbmp = (HBITMAP)SelectObject(memdc, membmp);
-
-			    memcpy(pvBits, image, width * height * 4);
-
-			    ftn.BlendOp = AC_SRC_OVER;
-			    ftn.BlendFlags = 0;
-			    ftn.AlphaFormat = AC_SRC_ALPHA; /* bitmap has an alpha channel */
-			    ftn.SourceConstantAlpha = 0xff;
-			    AlphaBlend(hdc, corners[2].x, corners[2].y, 
-			               corners[3].x - corners[2].x, corners[3].y - corners[2].y,
-			               memdc, 0, 0, width, height, ftn);
-
-			    SelectObject(memdc, oldbmp);
-			    DeleteObject(membmp);
-			    DeleteDC(memdc);
+		/* finish last polygon */
+		if ((lastop == W_vect) && (curptr->op != W_vect)) {
+			if (polyi >= 2) {
+#ifdef HAVE_GDIPLUS
+				if (!lpgw->antialiasing)
+					Polyline(hdc, ppt, polyi);
+				else
+					gdiplusPolyline(hdc, ppt, polyi, &cur_penstruct);
+#else
+				Polyline(hdc, ppt, polyi);
+#endif
+				/* move internal GDI state to last point */
+				MoveTo(hdc, ppt[polyi-1].x, ppt[polyi-1].y);
+			} else if (polyi == 1) {
+				/* degenerate case e.g. when using 'linecolor variable' */
+				LineTo(hdc, ppt[0].x, ppt[0].y);
 			}
-		    }
-		    LocalUnlock(curptr->htext);
+			polyi = 0;
 		}
-		seq = (seq + 1) % 6;
-	    }
-	    break;
-	case W_dot:
-	    dot(hdc, xdash, ydash);
-	    break;
-	case W_plus: /* do plus */
-	    MoveTo(hdc,xdash-htic,ydash);
-	    LineTo(hdc,xdash+htic+1,ydash);
-	    MoveTo(hdc,xdash,ydash-vtic);
-	    LineTo(hdc,xdash,ydash+vtic+1);
-	    break;
-	case W_cross: /* do X */
-	    MoveTo(hdc,xdash-htic,ydash-vtic);
-	    LineTo(hdc,xdash+htic+1,ydash+vtic+1);
-	    MoveTo(hdc,xdash-htic,ydash+vtic);
-	    LineTo(hdc,xdash+htic+1,ydash-vtic-1);
-	    break;
-	case W_star: /* do star */
-	    MoveTo(hdc,xdash-htic,ydash);
-	    LineTo(hdc,xdash+htic+1,ydash);
-	    MoveTo(hdc,xdash,ydash-vtic);
-	    LineTo(hdc,xdash,ydash+vtic+1);
-	    MoveTo(hdc,xdash-htic,ydash-vtic);
-	    LineTo(hdc,xdash+htic+1,ydash+vtic+1);
-	    MoveTo(hdc,xdash-htic,ydash+vtic);
-	    LineTo(hdc,xdash+htic+1,ydash-vtic-1);
-	    break;
-	case W_circle: /* do open circle */
-	    Arc(hdc, xdash-htic, ydash-vtic, xdash+htic+1, ydash+vtic+1,
-		xdash, ydash+vtic+1, xdash, ydash+vtic+1);
-	    dot(hdc, xdash, ydash);
-	    break;
-	case W_fcircle: /* do filled circle */
-	    Ellipse(hdc, xdash-htic, ydash-vtic,
-		    xdash+htic+1, ydash+vtic+1);
-	    break;
-	default:	/* potentially closed figure */
-	    {
-		POINT p[6];
-		int i;
-		int shape = 0;
-		int filled = 0;
-		static float pointshapes[5][10] = {
-		    {-1, -1, +1, -1, +1, +1, -1, +1, 0, 0}, /* box */
-		    { 0, +1, -1,  0,  0, -1, +1,  0, 0, 0}, /* diamond */
-		    { 0, -4./3, -4./3, 2./3,
-		      4./3,  2./3, 0, 0}, /* triangle */
-		    { 0, 4./3, -4./3, -2./3,
-		      4./3,  -2./3, 0, 0}, /* inverted triangle */
-		    { 0, 1, 0.95106, 0.30902, 0.58779, -0.80902,
-		      -0.58779, -0.80902, -0.95106, 0.30902} /* pentagon */
-		};
 
 		switch (curptr->op) {
-		case W_box:
-		    shape = 0;
-		    break;
-		case W_diamond:
-		    shape = 1;
-		    break;
-		case W_itriangle:
-		    shape = 2;
-		    break;
-		case W_triangle:
-		    shape = 3;
-		    break;
-		case W_pentagon:
-		    shape = 4;
-		    break;
-		case W_fbox:
-		    shape = 0;
-		    filled = 1;
-		    break;
-		case W_fdiamond:
-		    shape = 1;
-		    filled = 1;
-		    break;
-		case W_fitriangle:
-		    shape = 2;
-		    filled = 1;
-		    break;
-		case W_ftriangle:
-		    shape = 3;
-		    filled = 1;
-		    break;
-		case W_fpentagon:
-		    shape = 4;
-		    filled = 1;
-		    break;
+		case 0:	/* have run past last in this block */
+			break;
+
+		case W_move:
+			ppt[0].x = xdash;
+			ppt[0].y = ydash;
+			polyi = 1;
+			break;
+
+		case W_vect:
+			ppt[polyi].x = xdash;
+			ppt[polyi].y = ydash;
+			polyi++;
+			if (polyi >= polymax) {
+			Polyline(hdc, ppt, polyi);
+			MoveTo(hdc, xdash, ydash);
+			ppt[0].x = xdash;
+			ppt[0].y = ydash;
+			polyi = 1;
+			}
+			break;
+
+		case W_line_type: {
+			int cur_pen = (int)curptr->x % WGNUMPENS;
+
+			/* create new pens */
+			if (cur_pen > LT_NODRAW) {
+				cur_pen += 2;
+				cur_penstruct =  (lpgw->color && isColor) ?  lpgw->colorpen[cur_pen] : lpgw->monopen[cur_pen];
+				cur_penstruct.lopnStyle =
+					lpgw->dashed ? lpgw->monopen[cur_pen].lopnStyle : lpgw->colorpen[cur_pen].lopnStyle;
+			} else if (cur_pen == LT_NODRAW) {
+				cur_pen = WGNUMPENS;
+				cur_penstruct.lopnStyle = PS_NULL;
+				cur_penstruct.lopnColor = 0;
+				cur_penstruct.lopnWidth.x = 1;
+			} else { /* <= LT_BACKGROUND */
+				cur_pen = WGNUMPENS;
+				cur_penstruct.lopnStyle = PS_SOLID;
+				cur_penstruct.lopnColor = lpgw->background;
+				cur_penstruct.lopnWidth.x = 1;
+			}
+			cur_penstruct.lopnWidth.x *= line_width;
+			draw_new_pens(lpgw, hdc, cur_penstruct);
+
+			/* select new brush */
+			if (cur_pen < WGNUMPENS)
+				solid_brush = lpgw->colorbrush[cur_pen];
+			else
+				solid_brush = lpgw->hbrush;
+			SelectObject(hdc, solid_brush);
+
+			/* set text color, also used for pattern fill */
+			SetTextColor(hdc, cur_penstruct.lopnColor);
+
+			/* remember this color */
+			last_color = cur_penstruct.lopnColor;
+			fill_color = last_color;
+			break;
 		}
 
-		for (i = 0; i < 5; ++i) {
-		    if (pointshapes[shape][i * 2 + 1] == 0
-			&& pointshapes[shape][i * 2] == 0)
+		case W_put_text: {
+			char * str;
+			str = LocalLock(curptr->htext);
+			if (str) {
+				/* shift correctly for rotated text */
+				xdash += hshift;
+				ydash += vshift;
+				draw_put_text(lpgw, hdc, xdash, ydash, str);
+			}
+			LocalUnlock(curptr->htext);
 			break;
-		    p[i].x = xdash + htic*pointshapes[shape][i*2] + 0.5;
-		    p[i].y = ydash + vtic*pointshapes[shape][i*2+1] + 0.5;
 		}
-		if ( filled )
-		    /* Filled polygon */
-		    Polygon(hdc, p, i);
-		else {
-		    /* Outline polygon */
-		    p[i].x = p[0].x;
-		    p[i].y = p[0].y;
-		    Polyline(hdc, p, i+1);
-		    dot(hdc, xdash, ydash);
+
+		case W_enhanced_text: {
+			char * str;
+			str = LocalLock(curptr->htext);
+			if (str)
+				draw_enhanced_text(lpgw, hdc, rect, xdash, ydash, str);
+			LocalUnlock(curptr->htext);
+			break;
 		}
-	    } /* default case */
-	} /* switch(opcode) */
-	lastop = curptr->op;
-	ngwop++;
-	curptr++;
-	if ((unsigned)(curptr - blkptr->gwop) >= GWOPMAX) {
-	    GlobalUnlock(blkptr->hblk);
-	    blkptr->gwop = (struct GWOP FAR *)NULL;
-	    if ((blkptr = blkptr->next) == NULL)
-		/* If exact multiple of GWOPMAX entries are queued,
-		 * next will be NULL. Only the next GraphOp() call would
-		 * have allocated a new block */
-		return;
-	    if (!blkptr->gwop)
-		blkptr->gwop = (struct GWOP FAR *)GlobalLock(blkptr->hblk);
-	    if (!blkptr->gwop)
-		return;
-	    curptr = (struct GWOP FAR *)blkptr->gwop;
-	}
+
+		case W_fillstyle:
+			/* HBB 20010916: new entry, needed to squeeze the many
+			 * parameters of a filled box call through the bottleneck
+			 * of the fixed number of parameters in GraphOp() and
+			 * struct GWOP, respectively. */
+			fillstyle = curptr->x;
+
+			transparent = FALSE;
+			alpha = 0.;
+			switch (fillstyle & 0x0f) {
+			case FS_TRANSPARENT_SOLID:
+				alpha = (fillstyle >> 4) / 100.;
+				transparent = TRUE;
+				/* we already have a brush with that color */
+				break;
+			case FS_SOLID: {
+				double density = MINMAX(0, (int)(fillstyle >> 4), 100) * 0.01;
+				COLORREF color =
+					RGB(255 - density * (255 - GetRValue(last_color)),
+					    255 - density * (255 - GetGValue(last_color)),
+					    255 - density * (255 - GetBValue(last_color)));
+				draw_new_brush(lpgw, hdc, color);
+				solid_brush = lpgw->hcolorbrush;
+				fill_color = color;
+				break;
+			}
+			case FS_TRANSPARENT_PATTERN:
+				transparent = TRUE;
+				alpha = 1.;
+				/* intentionally fall through */
+			case FS_PATTERN:
+				/* style == 2 --> use fill pattern according to
+						 * fillpattern. Pattern number is enumerated */
+				pattern = GPMAX(fillstyle >> 4, 0) % pattern_num;
+				SelectObject(hdc, pattern_brush[pattern]);
+				break;
+			case FS_DEFAULT:
+				/* Leave the current brush and color in place */
+				break;
+			case FS_EMPTY:
+			default:
+				/* fill with background color */
+				SelectObject(hdc, lpgw->hbrush);
+				fill_color = lpgw->background;
+				solid_brush = lpgw->hbrush;
+				break;
+			}
+			break;
+
+		case W_boxfill: {  /* ULIG */
+			/* NOTE: the x and y passed with this call are the width and
+			 * height of the box, actually. The left corner was stored into
+			 * ppt[0] by a preceding W_move, and the style was set
+			 * by a W_fillstyle call. */
+			POINT p;
+			UINT  height, width;
+
+			width = xdash - ppt[0].x;
+			height = ppt[0].y - ydash;
+			p.x = ppt[0].x;
+			p.y = ydash;
+
+			if (transparent) {
+				HDC memdc;
+				HBITMAP membmp, oldbmp;
+				BLENDFUNCTION ftn;
+				HBRUSH old_brush;
+
+				/* create memory device context for bitmap */
+				memdc = CreateCompatibleDC(hdc);
+
+				/* create standard bitmap, no alpha channel needed */
+				membmp = CreateCompatibleBitmap(hdc, xdash, abs(ydash));
+				oldbmp = (HBITMAP)SelectObject(memdc, membmp);
+
+				/* prepare memory context */
+				SetTextColor(memdc, fill_color);
+				if ((fillstyle & 0x0f) == FS_TRANSPARENT_PATTERN)
+					old_brush = SelectObject(memdc, pattern_brush[pattern]);
+				else
+					old_brush = SelectObject(memdc, solid_brush);
+
+				/* draw into memory bitmap */
+				PatBlt(memdc, 0, 0, width, height, PATCOPY);
+
+				/* copy bitmap back */
+				if ((fillstyle & 0x0f) == FS_TRANSPARENT_PATTERN) {
+					TransparentBlt(hdc, p.x, p.y, width, height,
+						   memdc, 0, 0, width, height, 0x00ffffff);
+				} else {
+					ftn.AlphaFormat = 0; /* no alpha channel in bitmap */
+					ftn.SourceConstantAlpha = (UCHAR)((1. - alpha) * 0xff); /* global alpha */
+					ftn.BlendOp = AC_SRC_OVER;
+					ftn.BlendFlags = 0;
+					AlphaBlend(hdc, p.x, p.y, width, height,
+							   memdc, 0, 0, width, height, ftn);
+				}
+
+				/* clean up */
+				SelectObject(memdc, old_brush);
+				SelectObject(memdc, oldbmp);
+				DeleteObject(membmp);
+				DeleteDC(memdc);
+			} else {
+				/* not transparent */
+				/* FIXME: this actually is transparent, but probably shouldn't */
+				PatBlt(hdc, p.x, p.y, width, height, PATCOPY);
+			/*
+				SelectObject(hdc, lpgw->hnull);
+				Rectangle(hdc, p.x, p.y, p.x + width + 1, p.y + height + 1);
+				SelectObject(hdc, lpgw->hapen);
+			*/
+			}
+			polyi = 0;
+			break;
+		}
+
+		case W_text_angle:
+			if (lpgw->angle != (int)curptr->x) {
+				lpgw->angle = (int)curptr->x;
+				SetFont(lpgw, hdc);
+				/* recalculate shifting of rotated text */
+				hshift = sin(M_PI/180. * lpgw->angle) * MulDiv(lpgw->vchar, rr-rl, lpgw->xmax) / 2;
+				vshift = cos(M_PI/180. * lpgw->angle) * MulDiv(lpgw->vchar, rb-rt, lpgw->ymax) / 2;
+			}
+			break;
+
+		case W_justify:
+			draw_text_justify(hdc, curptr->x);
+			lpgw->justify = curptr->x;
+			break;
+
+		case W_font: {
+			int size = curptr->x;
+			char * font = LocalLock(curptr->htext);
+			/* GraphChangeFont already handles font==NULL and size==0,
+			   so the checks below are a bit paranoid...
+			*/
+			GraphChangeFont(lpgw,
+				font != NULL ? font : lpgw->deffontname,
+				size > 0 ? size : lpgw->deffontsize, 
+				hdc, *rect);
+			LocalUnlock(curptr->htext);
+			SetFont(lpgw, hdc);
+			/* recalculate shifting of rotated text */
+			hshift = sin(M_PI/180. * lpgw->angle) * MulDiv(lpgw->vchar, rr-rl, lpgw->xmax) / 2;
+			vshift = cos(M_PI/180. * lpgw->angle) * MulDiv(lpgw->vchar, rb-rt, lpgw->ymax) / 2;
+			break;
+		}
+
+		case W_pointsize:
+			if (curptr->x != 0) {
+				double pointsize = curptr->x / 100.0;
+				htic = pointsize * MulDiv(lpgw->htic, rr-rl, lpgw->xmax) + 1;
+				vtic = pointsize * MulDiv(lpgw->vtic, rb-rt, lpgw->ymax) + 1;
+			}
+			break;
+
+		case W_line_width:
+			/* HBB 20000813: this may look strange, but it ensures
+			 * that linewidth is exactly 1 iff it's in default
+			 * state */
+			line_width = curptr->x == 100 ? 1 : (curptr->x / 100.0);
+			line_width *= lpgw->sampling * lpgw->linewidth;
+			break;
+
+		case W_setcolor: {
+			COLORREF color;
+
+			/* distinguish gray values and RGB colors */
+			if (curptr->y == 0) {			/* TC_FRAC */
+				rgb255_color rgb255;
+				rgb255maxcolors_from_gray(curptr->x / (double)WIN_PAL_COLORS, &rgb255);
+				color = RGB(rgb255.r, rgb255.g, rgb255.b);
+			}
+			else if (curptr->y == (TC_LT << 8)) {	/* TC_LT */
+				int pen = (int)curptr->x % WGNUMPENS;
+				if (pen <= LT_NODRAW)
+					color = lpgw->background;
+				else
+					color = lpgw->colorpen[pen + 2].lopnColor;
+			}
+			else {					/* TC_RGB */
+				color = RGB(curptr->y & 0xff, (curptr->x >> 8) & 0xff, curptr->x & 0xff);
+			}
+
+			/* solid fill brush */
+			draw_new_brush(lpgw, hdc, color);
+			solid_brush = lpgw->hcolorbrush;
+
+			/* create new pen, too */
+			cur_penstruct.lopnColor = color;
+			draw_new_pens(lpgw, hdc, cur_penstruct);
+
+			/* set text color, which is also used for pattern fill */
+			SetTextColor(hdc, color);
+			/* remember this color */
+			last_color = color;
+			fill_color = color;
+			break;
+		}
+
+		case W_filled_polygon_pt: {
+			/* a point of the polygon is coming */
+			if (polyi >= polymax) {
+				polymax += 200;
+				ppt = (POINT *)LocalReAllocPtr(ppt, LHND, (polymax+1) * sizeof(POINT));
+			}
+			ppt[polyi].x = xdash;
+			ppt[polyi].y = ydash;
+
+			polyi++;
+			break;
+		}
+
+		case W_filled_polygon_draw:	{
+			/* end of point series --> draw polygon now */
+			if (!transparent) {
+#ifdef HAVE_GDIPLUS
+				if (lpgw->antialiasing && ((fillstyle & 0x0f) == FS_SOLID)) {
+					/* solid, antialiased fill */
+					gdiplusSolidFilledPolygonEx(hdc, ppt, polyi, fill_color, 1.0);
+				} else
+#endif
+				{
+					/* fill area without border */
+					SelectObject(hdc, lpgw->hnull);
+					Polygon(hdc, ppt, polyi);
+					SelectObject(hdc, lpgw->hapen); /* restore previous pen */
+				}
+			} else {
+#ifdef HAVE_GDIPLUS
+				if (lpgw->antialiasing && (fillstyle & 0x0f) == FS_TRANSPARENT_SOLID) {
+					gdiplusSolidFilledPolygonEx(hdc, ppt, polyi, fill_color, alpha);
+				} else
+#endif
+				{
+				/* BM: To support transparent fill on Windows we draw the
+				   polygon into a memory bitmap using a memory device context.
+
+				   We then associate an alpha value to the bitmap and use
+				   AlphaBlend() to copy the bitmap back.
+
+				   Note: we could probably simplify and speed up the case of
+				   pattern fill by using TransparentBlt() instead.
+				*/
+				HDC memdc;
+				HBITMAP membmp, oldbmp;
+				int minx, miny, maxx, maxy;
+				UINT32 width, height;
+				BITMAPINFO bmi;
+				UINT32 *pvBits;
+				int x, y, i;
+				POINT * points;
+				BLENDFUNCTION ftn;
+				UINT32 uAlpha = (UCHAR)(0xff * alpha);
+				/* FIXME: we always use white as inidicator for transparency
+				   this will fail for last_color = white
+				*/
+				UINT32 transparentColor = 0x00ffffff; /* white */
+				HBRUSH old_brush;
+
+				/* find minimum rectangle enclosing our polygon. */
+				minx = maxx = ppt[0].x;
+				miny = maxy = ppt[0].y;
+				for (i = 1; i < polyi; i++) {
+					minx = min(ppt[i].x, minx);
+					miny = min(ppt[i].y, miny);
+					maxx = max(ppt[i].x, maxx);
+					maxy = max(ppt[i].y, maxy);
+				}
+
+				/* now shift polygon points to upper left corner */
+				points = (POINT *)LocalAllocPtr(LHND, (polyi+1) * sizeof(POINT));
+				for (i = 0; i < polyi; i++) {
+					points[i].x = ppt[i].x - minx;
+					points[i].y = ppt[i].y - miny;
+				}
+
+				/* create memory device context for bitmap */
+				memdc = CreateCompatibleDC(hdc);
+
+				/* create memory bitmap with alpha channel and minimal size */
+				width  = maxx - minx;
+				height = maxy - miny;
+				ZeroMemory(&bmi, sizeof(BITMAPINFO));
+				bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+				bmi.bmiHeader.biWidth = width;
+				bmi.bmiHeader.biHeight = height;
+				bmi.bmiHeader.biPlanes = 1;
+				bmi.bmiHeader.biBitCount = 32;
+				bmi.bmiHeader.biCompression = BI_RGB;
+				bmi.bmiHeader.biSizeImage = width * height * 4;
+				membmp = CreateDIBSection(memdc, &bmi, DIB_RGB_COLORS, (void **)&pvBits, NULL, 0x0);
+				oldbmp = (HBITMAP)SelectObject(memdc, membmp);
+				/* clear bitmap, could also do it via GDI */
+				for (i = 0; i < width * height; i++)
+					pvBits[i] = transparentColor;
+
+				/* prepare the memory context */
+				SetTextColor(memdc, fill_color);
+				SelectObject(memdc, lpgw->hapen);
+				if ((fillstyle & 0x0f) == FS_TRANSPARENT_PATTERN)
+					old_brush = SelectObject(memdc, pattern_brush[pattern]);
+				else
+					old_brush = SelectObject(memdc, solid_brush);
+
+				/* finally, draw polygon */
+				Polygon(memdc, points, polyi);
+
+				/* add alpha channel to bitmap */
+				/* Note: this is really a pre-scaled alpha channel, see MSDN.
+				   To make life easy we only use global transparency, see below */
+				for (y = 0; y < height; y++) {
+					for (x = 0; x < width; x++) {
+						UINT32 pixel = pvBits[x + y * width];
+						if (pixel == transparentColor)
+							pvBits[x + y * width]  = 0x00000000; /* completely transparent */
+						else
+							pvBits[x + y * width] |= 0xff000000; /* mark as completely opaque */
+					}
+				}
+
+				/* copy to device with alpa blending */
+				ftn.BlendOp = AC_SRC_OVER;
+				ftn.BlendFlags = 0;
+				ftn.AlphaFormat = AC_SRC_ALPHA; /* bitmap has an alpha channel */
+				ftn.SourceConstantAlpha = uAlpha;
+				AlphaBlend(hdc, minx, miny, width, height,
+						   memdc, 0, 0, width, height, ftn);
+
+				/* clean up */
+				LocalFreePtr(points);
+				SelectObject(memdc, old_brush);
+				SelectObject(memdc, oldbmp);
+				DeleteObject(membmp);
+				DeleteDC(memdc);
+			}
+			}
+			polyi = 0;
+			}
+			break;
+
+		case W_image:
+			{
+			/* Due to the structure of gwop in total 6 entries are needed.
+			   These static variables help to collect all the information
+			*/
+			if (seq == 0) {
+				/* First OP contains only the color mode */
+				color_mode = curptr->x;
+			} else if (seq < 5) {
+				/* Next four OPs contain the `corner` array */
+				corners[seq-1].x = xdash;
+				corners[seq-1].y = ydash;
+			} else {
+				/* The last OP contains the image and it's size */
+				char *image;
+				unsigned int width, height;
+				int rc;
+
+				width = curptr->x;
+				height = curptr->y;
+				image = LocalLock(curptr->htext);
+				if (image) {
+					BITMAPINFO bmi;
+
+					ZeroMemory(&bmi, sizeof(BITMAPINFO));
+					bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+					bmi.bmiHeader.biWidth = width;
+					bmi.bmiHeader.biHeight = height;
+					bmi.bmiHeader.biPlanes = 1;
+					bmi.bmiHeader.biCompression = BI_RGB;
+
+					if (color_mode != IC_RGBA) {
+						bmi.bmiHeader.biBitCount = 24;
+
+						rc = StretchDIBits(hdc,
+							GPMIN(corners[2].x, corners[3].x) , GPMIN(corners[2].y, corners[3].y),
+							abs(corners[3].x - corners[2].x), abs(corners[3].y - corners[2].y),
+							0, 0, width, height,
+							image, &bmi, DIB_RGB_COLORS, SRCCOPY);
+					} else {
+						HDC memdc;
+						HBITMAP membmp, oldbmp;
+						UINT32 *pvBits;
+						BLENDFUNCTION ftn;
+
+						bmi.bmiHeader.biBitCount = 32;
+						memdc = CreateCompatibleDC(hdc);
+						membmp = CreateDIBSection(memdc, &bmi, DIB_RGB_COLORS, (void **)&pvBits, NULL, 0x0);
+						oldbmp = (HBITMAP)SelectObject(memdc, membmp);
+
+						memcpy(pvBits, image, width * height * 4);
+
+						ftn.BlendOp = AC_SRC_OVER;
+						ftn.BlendFlags = 0;
+						ftn.AlphaFormat = AC_SRC_ALPHA; /* bitmap has an alpha channel */
+						ftn.SourceConstantAlpha = 0xff;
+						AlphaBlend(hdc,
+							GPMIN(corners[2].x, corners[3].x) , GPMIN(corners[2].y, corners[3].y),
+							abs(corners[3].x - corners[2].x), abs(corners[3].y - corners[2].y),
+							memdc, 0, 0, width, height, ftn);
+
+						SelectObject(memdc, oldbmp);
+						DeleteObject(membmp);
+						DeleteDC(memdc);
+					}
+				}
+				LocalUnlock(curptr->htext);
+			}
+			seq = (seq + 1) % 6;
+			}
+			break;
+
+		case W_dot:
+			dot(hdc, xdash, ydash);
+			break;
+		case W_plus: /* do plus */
+			SelectObject(hdc, lpgw->hsolid);
+			MoveTo(hdc,xdash-htic,ydash);
+			LineTo(hdc,xdash+htic+1,ydash);
+			MoveTo(hdc,xdash,ydash-vtic);
+			LineTo(hdc,xdash,ydash+vtic+1);
+			SelectObject(hdc, lpgw->hapen);
+			break;
+		case W_cross: /* do X */
+			SelectObject(hdc, lpgw->hsolid);
+			MoveTo(hdc,xdash-htic,ydash-vtic);
+			LineTo(hdc,xdash+htic+1,ydash+vtic+1);
+			MoveTo(hdc,xdash-htic,ydash+vtic);
+			LineTo(hdc,xdash+htic+1,ydash-vtic-1);
+			SelectObject(hdc, lpgw->hapen);
+			break;
+		case W_star: /* do star */
+			SelectObject(hdc, lpgw->hsolid);
+			MoveTo(hdc,xdash-htic,ydash);
+			LineTo(hdc,xdash+htic+1,ydash);
+			MoveTo(hdc,xdash,ydash-vtic);
+			LineTo(hdc,xdash,ydash+vtic+1);
+			MoveTo(hdc,xdash-htic,ydash-vtic);
+			LineTo(hdc,xdash+htic+1,ydash+vtic+1);
+			MoveTo(hdc,xdash-htic,ydash+vtic);
+			LineTo(hdc,xdash+htic+1,ydash-vtic-1);
+			SelectObject(hdc, lpgw->hapen);
+			break;
+		case W_circle: /* do open circle */
+			SelectObject(hdc, lpgw->hsolid);
+#ifdef HAVE_GDIPLUS
+			if (lpgw->antialiasing) {
+				POINT p;
+				p.x = xdash;
+				p.y = ydash;
+				gdiplusCircleEx(hdc, &p, htic, PS_SOLID, line_width, last_color);
+			} else
+#endif
+			{
+				Arc(hdc, xdash-htic, ydash-vtic, xdash+htic+1, ydash+vtic+1,
+					xdash, ydash+vtic+1, xdash, ydash+vtic+1);
+			}
+			dot(hdc, xdash, ydash);
+			SelectObject(hdc, lpgw->hapen);
+			break;
+		case W_fcircle: /* do filled circle */
+			SelectObject(hdc, lpgw->hsolid);
+			Ellipse(hdc, xdash-htic, ydash-vtic,
+				xdash+htic+1, ydash+vtic+1);
+			SelectObject(hdc, lpgw->hapen);
+#ifdef HAVE_GDIPLUS
+			if (lpgw->antialiasing) {
+				POINT p;
+				p.x = xdash;
+				p.y = ydash;
+				gdiplusCircleEx(hdc, &p, htic, PS_SOLID, line_width, last_color);
+			}
+#endif
+			break;
+		default:	/* potentially closed figure */
+			{
+			POINT p[6];
+			int i;
+			int shape = 0;
+			int filled = 0;
+			static float pointshapes[5][10] = {
+				{-1, -1, +1, -1, +1, +1, -1, +1, 0, 0}, /* box */
+				{ 0, +1, -1,  0,  0, -1, +1,  0, 0, 0}, /* diamond */
+				{ 0, -4./3, -4./3, 2./3,
+				  4./3,  2./3, 0, 0}, /* triangle */
+				{ 0, 4./3, -4./3, -2./3,
+				  4./3,  -2./3, 0, 0}, /* inverted triangle */
+				{ 0, 1, 0.95106, 0.30902, 0.58779, -0.80902,
+				  -0.58779, -0.80902, -0.95106, 0.30902} /* pentagon */
+			};
+
+			switch (curptr->op) {
+			case W_box:
+				shape = 0;
+				break;
+			case W_diamond:
+				shape = 1;
+				break;
+			case W_itriangle:
+				shape = 2;
+				break;
+			case W_triangle:
+				shape = 3;
+				break;
+			case W_pentagon:
+				shape = 4;
+				break;
+			case W_fbox:
+				shape = 0;
+				filled = 1;
+				break;
+			case W_fdiamond:
+				shape = 1;
+				filled = 1;
+				break;
+			case W_fitriangle:
+				shape = 2;
+				filled = 1;
+				break;
+			case W_ftriangle:
+				shape = 3;
+				filled = 1;
+				break;
+			case W_fpentagon:
+				shape = 4;
+				filled = 1;
+				break;
+			}
+
+			for (i = 0; i < 5; ++i) {
+				if (pointshapes[shape][i * 2 + 1] == 0
+				&& pointshapes[shape][i * 2] == 0)
+					break;
+				p[i].x = xdash + htic*pointshapes[shape][i*2] + 0.5;
+				p[i].y = ydash + vtic*pointshapes[shape][i*2+1] + 0.5;
+			}
+			if (filled) {
+				/* Filled polygon */
+#ifdef HAVE_GDIPLUS
+				if (lpgw->antialiasing) {
+					/* filled polygon with border */
+					gdiplusSolidFilledPolygonEx(hdc, p, i, last_color, 1.0);
+				} else
+#endif
+				{
+					SelectObject(hdc, lpgw->hsolid);
+					Polygon(hdc, p, i);
+					SelectObject(hdc, lpgw->hapen);
+				}
+			} else {
+				/* Outline polygon */
+				p[i].x = p[0].x;
+				p[i].y = p[0].y;
+#ifdef HAVE_GDIPLUS
+				if (!lpgw->antialiasing) {
+					SelectObject(hdc, lpgw->hsolid);
+					Polyline(hdc, p, i+1);
+					SelectObject(hdc, lpgw->hapen);
+				} else {
+					gdiplusPolylineEx(hdc, p, i+1, PS_SOLID, line_width, last_color);
+				}
+#else
+				Polyline(hdc, p, i+1);
+#endif
+				dot(hdc, xdash, ydash);
+			}
+			} /* default case */
+		} /* switch(opcode) */
+		lastop = curptr->op;
+		ngwop++;
+		curptr++;
+		if ((unsigned)(curptr - blkptr->gwop) >= GWOPMAX) {
+			GlobalUnlock(blkptr->hblk);
+			blkptr->gwop = (struct GWOP *)NULL;
+			if ((blkptr = blkptr->next) == NULL)
+				/* If exact multiple of GWOPMAX entries are queued,
+				 * next will be NULL. Only the next GraphOp() call would
+				 * have allocated a new block */
+				return;
+			if (!blkptr->gwop)
+				blkptr->gwop = (struct GWOP *)GlobalLock(blkptr->hblk);
+			if (!blkptr->gwop)
+				return;
+			curptr = (struct GWOP *)blkptr->gwop;
+		}
     }
     if (polyi >= 2)
-	Polyline(hdc, ppt, polyi);
+		Polyline(hdc, ppt, polyi);
     LocalFreePtr(ppt);
 }
 
@@ -1695,15 +2053,11 @@ SaveAsEMF(LPGW lpgw)
 {
     char *cwd;
     static OPENFILENAME Ofn;
-    
     static char lpstrCustomFilter[256] = { '\0' };
     static char lpstrFileName[MAX_PATH] = { '\0' };
     static char lpstrFileTitle[MAX_PATH] = { '\0' };
-    
-    HWND hwnd;
-    
-    hwnd = lpgw->hWndGraph;
-    
+    HWND hwnd = lpgw->hWndGraph;
+
     Ofn.lStructSize = sizeof(OPENFILENAME);
     Ofn.hwndOwner = hwnd;
     Ofn.lpstrInitialDir = (LPSTR)NULL;
@@ -1719,33 +2073,33 @@ SaveAsEMF(LPGW lpgw)
     Ofn.lpstrTitle = (LPSTR)NULL;
     Ofn.Flags = OFN_OVERWRITEPROMPT;
     Ofn.lpstrDefExt = (LPSTR) "emf";
-    
+
     /* save cwd as GetSaveFileName apparently changes it */
-    cwd = _getcwd( NULL, 0 );
-    
-    if( GetSaveFileName(&Ofn) != 0 ) {
-	RECT rect, mfrect;
-	HDC hdc;
-	HENHMETAFILE hemf;
-	HDC hmf;
-	
-	/* get the context */
-	hdc = GetDC(hwnd);
-	GetPlotRect(lpgw, &rect);
-	GetPlotRectInMM(lpgw, &mfrect, hdc);
+    cwd = _getcwd(NULL, 0);
 
-	hmf = CreateEnhMetaFile(hdc, Ofn.lpstrFile, &mfrect, (LPCTSTR)NULL);
-	drawgraph(lpgw, hmf, (LPRECT) &rect);
-	hemf = CloseEnhMetaFile(hmf);
+	if (GetSaveFileName(&Ofn) != 0) {
+		RECT rect, mfrect;
+		HDC hdc;
+		HENHMETAFILE hemf;
+		HDC hmf;
 
-	DeleteEnhMetaFile(hemf);
-	ReleaseDC(hwnd, hdc);
-	
-	/* restore cwd */
-	if (cwd != NULL) 
-	    _chdir( cwd );
+		/* get the context */
+		hdc = GetDC(hwnd);
+		GetPlotRect(lpgw, &rect);
+		GetPlotRectInMM(lpgw, &mfrect, hdc);
+
+		hmf = CreateEnhMetaFile(hdc, Ofn.lpstrFile, &mfrect, (LPCTSTR)NULL);
+		drawgraph(lpgw, hmf, (LPRECT) &rect);
+		hemf = CloseEnhMetaFile(hmf);
+
+		DeleteEnhMetaFile(hemf);
+		ReleaseDC(hwnd, hdc);
+
+		/* restore cwd */
+		if (cwd != NULL)
+			_chdir( cwd );
     }
-    
+
     /* free the cwd buffer allcoated by _getcwd */
     free(cwd);
 }
@@ -1794,8 +2148,8 @@ CopyClip(LPGW lpgw)
 	}
 	DeleteDC(mem);
 
-	/* OK, bitmap done, now create an enhanced Metafile context 
-	 * and redraw the whole plot into that. 
+	/* OK, bitmap done, now create an enhanced Metafile context
+	 * and redraw the whole plot into that.
 	 */
 	{
 		/* make copy of window's main status struct for modification */
@@ -1817,7 +2171,6 @@ CopyClip(LPGW lpgw)
 
 	/* Now we have the Metafile and Bitmap prepared, post their contents to
 	 * the Clipboard */
-
 	OpenClipboard(hwnd);
 	EmptyClipboard();
 	SetClipboardData(CF_ENHMETAFILE,hemf);
@@ -1827,6 +2180,7 @@ CopyClip(LPGW lpgw)
 	DeleteEnhMetaFile(hemf);
 	return;
 }
+
 
 /* copy graph window to printer */
 static void
@@ -1896,7 +2250,7 @@ CopyPrint(LPGW lpgw)
 		SetBkMode(printer,OPAQUE);
 		StartPage(printer);
 		DestroyFonts(lpgw);
-		MakeFonts(lpgw, (RECT FAR *)&rect, printer);
+		MakeFonts(lpgw, (RECT *)&rect, printer);
 		DestroyPens(lpgw);	/* rebuild pens */
 		MakePens(lpgw, printer);
 		drawgraph(lpgw, printer, (void *) &rect);
@@ -1914,6 +2268,7 @@ CopyPrint(LPGW lpgw)
 	SendMessage(lpgw->hWndGraph,WM_COMMAND,M_REBUILDTOOLS,0L);
 	return;
 }
+
 
 /* ================================== */
 /*  INI file stuff */
@@ -1948,6 +2303,8 @@ WriteGraphIni(LPGW lpgw)
 	WritePrivateProfileString(section, "GraphDoublebuffer", profile, file);
 	wsprintf(profile, "%d", lpgw->oversample);
 	WritePrivateProfileString(section, "GraphOversampling", profile, file);
+	wsprintf(profile, "%d", lpgw->antialiasing);
+	WritePrivateProfileString(section, "GraphAntialising", profile, file);
 	wsprintf(profile, "%d %d %d",GetRValue(lpgw->background),
 			GetGValue(lpgw->background), GetBValue(lpgw->background));
 	WritePrivateProfileString(section, "GraphBackground", profile, file);
@@ -1971,7 +2328,8 @@ WriteGraphIni(LPGW lpgw)
 	return;
 }
 
-void
+
+static void
 ReadGraphIni(LPGW lpgw)
 {
 	LPSTR file = lpgw->IniFile;
@@ -1988,13 +2346,13 @@ ReadGraphIni(LPGW lpgw)
 		profile[0] = '\0';
 
 	if (bOKINI)
-	  GetPrivateProfileString(section, "GraphOrigin", "", profile, 80, file);
+		GetPrivateProfileString(section, "GraphOrigin", "", profile, 80, file);
 	if ( (p = GetInt(profile, (LPINT)&lpgw->Origin.x)) == NULL)
 		lpgw->Origin.x = CW_USEDEFAULT;
 	if ( (p = GetInt(p, (LPINT)&lpgw->Origin.y)) == NULL)
 		lpgw->Origin.y = CW_USEDEFAULT;
 	if (bOKINI)
-	  GetPrivateProfileString(section, "GraphSize", "", profile, 80, file);
+		GetPrivateProfileString(section, "GraphSize", "", profile, 80, file);
 	if ( (p = GetInt(profile, (LPINT)&lpgw->Size.x)) == NULL)
 		lpgw->Size.x = CW_USEDEFAULT;
 	if ( (p = GetInt(p, (LPINT)&lpgw->Size.y)) == NULL)
@@ -2003,7 +2361,7 @@ ReadGraphIni(LPGW lpgw)
 	if (bOKINI)
 	  GetPrivateProfileString(section, "GraphFont", "", profile, 80, file);
 	{
-		char FAR *size;
+		char *size;
 		size = _fstrchr(profile,',');
 		if (size) {
 			*size++ = '\0';
@@ -2021,68 +2379,72 @@ ReadGraphIni(LPGW lpgw)
 	}
 
 	if (bOKINI)
-	  GetPrivateProfileString(section, "GraphColor", "", profile, 80, file);
-		if ( (p = GetInt(profile, (LPINT)&lpgw->color)) == NULL)
-			lpgw->color = TRUE;
+		GetPrivateProfileString(section, "GraphColor", "", profile, 80, file);
+	if ( (p = GetInt(profile, (LPINT)&lpgw->color)) == NULL)
+		lpgw->color = TRUE;
 
 	if (bOKINI)
-	  GetPrivateProfileString(section, "GraphToTop", "", profile, 80, file);
-		if ( (p = GetInt(profile, (LPINT)&lpgw->graphtotop)) == NULL)
-			lpgw->graphtotop = TRUE;
+		GetPrivateProfileString(section, "GraphToTop", "", profile, 80, file);
+	if ( (p = GetInt(profile, (LPINT)&lpgw->graphtotop)) == NULL)
+		lpgw->graphtotop = TRUE;
 
 	if (bOKINI)
-	  GetPrivateProfileString(section, "GraphDoubleBuffer", "", profile, 80, file);
-		if ( (p = GetInt(profile, (LPINT)&lpgw->doublebuffer)) == NULL)
-			lpgw->doublebuffer = TRUE;
+		GetPrivateProfileString(section, "GraphDoubleBuffer", "", profile, 80, file);
+	if ( (p = GetInt(profile, (LPINT)&lpgw->doublebuffer)) == NULL)
+		lpgw->doublebuffer = TRUE;
 
 	if (bOKINI)
-	  GetPrivateProfileString(section, "GraphOversampling", "", profile, 80, file);
-		if ( (p = GetInt(profile, (LPINT)&lpgw->oversample)) == NULL)
-			lpgw->oversample = TRUE;
+		GetPrivateProfileString(section, "GraphOversampling", "", profile, 80, file);
+	if ( (p = GetInt(profile, (LPINT)&lpgw->oversample)) == NULL)
+		lpgw->oversample = FALSE;
+
+	if (bOKINI)
+	  GetPrivateProfileString(section, "GraphAntialiasing", "", profile, 80, file);
+		if ( (p = GetInt(profile, (LPINT)&lpgw->antialiasing)) == NULL)
+			lpgw->antialiasing = TRUE;
 
 	lpgw->background = RGB(255,255,255);
 	if (bOKINI)
-	  GetPrivateProfileString(section, "GraphBackground", "", profile, 80, file);
+		GetPrivateProfileString(section, "GraphBackground", "", profile, 80, file);
 	if ( ((p = GetInt(profile, (LPINT)&r)) != NULL) &&
 	     ((p = GetInt(p, (LPINT)&g)) != NULL) &&
 	     ((p = GetInt(p, (LPINT)&b)) != NULL) )
-			lpgw->background = RGB(r,g,b);
+		lpgw->background = RGB(r,g,b);
 
-	StorePen(lpgw, 0,RGB(0,0,0),PS_SOLID,PS_SOLID);
+	StorePen(lpgw, 0, RGB(0,0,0), PS_SOLID, PS_SOLID);
 	if (bOKINI)
-	  GetPrivateProfileString(section, "Border", "", profile, 80, file);
+		GetPrivateProfileString(section, "Border", "", profile, 80, file);
 	if ( ((p = GetInt(profile, (LPINT)&r)) != NULL) &&
 	     ((p = GetInt(p, (LPINT)&g)) != NULL) &&
 	     ((p = GetInt(p, (LPINT)&b)) != NULL) &&
 	     ((p = GetInt(p, (LPINT)&colorstyle)) != NULL) &&
 	     ((p = GetInt(p, (LPINT)&monostyle)) != NULL) )
-			StorePen(lpgw,0,RGB(r,g,b),colorstyle,monostyle);
+		StorePen(lpgw, 0, RGB(r,g,b), colorstyle, monostyle);
 
-	StorePen(lpgw, 1,RGB(192,192,192),PS_DOT,PS_DOT);
+	StorePen(lpgw, 1, RGB(192,192,192), PS_DOT, PS_DOT);
 	if (bOKINI)
-	  GetPrivateProfileString(section, "Axis", "", profile, 80, file);
+		GetPrivateProfileString(section, "Axis", "", profile, 80, file);
 	if ( ((p = GetInt(profile, (LPINT)&r)) != NULL) &&
 	     ((p = GetInt(p, (LPINT)&g)) != NULL) &&
 	     ((p = GetInt(p, (LPINT)&b)) != NULL) &&
 	     ((p = GetInt(p, (LPINT)&colorstyle)) != NULL) &&
 	     ((p = GetInt(p, (LPINT)&monostyle)) != NULL) )
-			StorePen(lpgw,1,RGB(r,g,b),colorstyle,monostyle);
+		StorePen(lpgw, 1, RGB(r,g,b), colorstyle, monostyle);
 
-	for (i=0; i<WGNUMPENS; i++)
-	{
+	for (i=0; i<WGNUMPENS; i++) {
 		ref = wginitcolor[ i%WGDEFCOLOR ];
 		colorstyle = wginitstyle[ (i/WGDEFCOLOR) % WGDEFSTYLE ];
 		monostyle  = wginitstyle[ i%WGDEFSTYLE ];
-		StorePen(lpgw, i+2,ref,colorstyle,monostyle);
+		StorePen(lpgw, i+2, ref, colorstyle, monostyle);
 		wsprintf(entry,"Line%d",i+1);
 		if (bOKINI)
-		  GetPrivateProfileString(section, entry, "", profile, 80, file);
+			GetPrivateProfileString(section, entry, "", profile, 80, file);
 		if ( ((p = GetInt(profile, (LPINT)&r)) != NULL) &&
 		     ((p = GetInt(p, (LPINT)&g)) != NULL) &&
 		     ((p = GetInt(p, (LPINT)&b)) != NULL) &&
 		     ((p = GetInt(p, (LPINT)&colorstyle)) != NULL) &&
 		     ((p = GetInt(p, (LPINT)&monostyle)) != NULL) )
-				StorePen(lpgw,i+2,RGB(r,g,b),colorstyle,monostyle);
+			StorePen(lpgw, i + 2, RGB(r,g,b), colorstyle, monostyle);
 	}
 }
 
@@ -2101,7 +2463,7 @@ typedef struct tagLS {
 	LOGPEN	colorpen[WGNUMPENS+2];	/* logical color pens */
 	LOGPEN	monopen[WGNUMPENS+2];	/* logical mono pens */
 } LS;
-typedef LS FAR*  LPLS;
+typedef LS *  LPLS;
 
 
 static COLORREF
@@ -2148,7 +2510,7 @@ UpdateColorSample(HWND hdlg)
 }
 
 /* Window handler function for the "Line Styles" dialog */
-BOOL CALLBACK 
+BOOL CALLBACK
 LineStyleDlgProc(HWND hdlg, UINT wmsg, WPARAM wparam, LPARAM lparam)
 {
 	char buf[16];
@@ -2398,7 +2760,7 @@ Wnd_refresh_ruler_lineto(LPGW lpgw, LPARAM lParam)
 /* ================================== */
 
 /* The toplevel function of this module: Window handler function of the graph window */
-LRESULT CALLBACK 
+LRESULT CALLBACK
 WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	HDC hdc;
@@ -2460,7 +2822,7 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				| ((fwKeys & MK_CONTROL)? Mod_Ctrl : 0)
 				| ((fwKeys & MK_ALT)? Mod_Alt : 0);
 			    if (last_modifier_mask != modifier_mask)
-			    	Wnd_exec_event(lpgw, lParam, GE_modifier, 
+					Wnd_exec_event(lpgw, lParam, GE_modifier,
 					       modifier_mask);
 			    Wnd_exec_event(lpgw, lParam, GE_buttonpress,
 					   zDelta > 0 ? 4 : 5);
@@ -2520,6 +2882,7 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				case M_COLOR:
 				case M_DOUBLEBUFFER:
 				case M_OVERSAMPLE:
+				case M_ANTIALIASING:
 				case M_CHOOSE_FONT:
 				case M_COPY_CLIP:
 				case M_SAVE_AS_EMF:
@@ -2716,6 +3079,7 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 					return(0);
 				case M_COLOR:
 					lpgw->color = !lpgw->color;
+					lpgw->dashed = !lpgw->color;
 					SendMessage(hwnd,WM_COMMAND,M_REBUILDTOOLS,0L);
 					return(0);
 				case M_OVERSAMPLE:
@@ -2724,6 +3088,10 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 					return(0);
 				case M_DOUBLEBUFFER:
 					lpgw->doublebuffer = !lpgw->doublebuffer;
+					SendMessage(hwnd,WM_COMMAND,M_REBUILDTOOLS,0L);
+					return(0);
+				case M_ANTIALIASING:
+					lpgw->antialiasing = !lpgw->antialiasing;
 					SendMessage(hwnd,WM_COMMAND,M_REBUILDTOOLS,0L);
 					return(0);
 				case M_CHOOSE_FONT:
@@ -2752,7 +3120,6 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 						WriteTextIni(lpgw->lptw);
 					return 0;
 				case M_REBUILDTOOLS:
-					lpgw->resized = TRUE;
 					if (lpgw->color)
 						CheckMenuItem(lpgw->hPopMenu, M_COLOR, MF_BYCOMMAND | MF_CHECKED);
 					else
@@ -2765,6 +3132,12 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 						CheckMenuItem(lpgw->hPopMenu, M_OVERSAMPLE, MF_BYCOMMAND | MF_CHECKED);
 					else
 						CheckMenuItem(lpgw->hPopMenu, M_OVERSAMPLE, MF_BYCOMMAND | MF_UNCHECKED);
+#ifdef HAVE_GDIPLUS
+					if (lpgw->antialiasing)
+						CheckMenuItem(lpgw->hPopMenu, M_ANTIALIASING, MF_BYCOMMAND | MF_CHECKED);
+					else
+						CheckMenuItem(lpgw->hPopMenu, M_ANTIALIASING, MF_BYCOMMAND | MF_UNCHECKED);
+#endif
 					if (lpgw->graphtotop)
 						CheckMenuItem(lpgw->hPopMenu, M_GRAPH_TO_TOP, MF_BYCOMMAND | MF_CHECKED);
 					else
@@ -2782,27 +3155,29 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 					return 0;
 			}
 			return 0;
-                case WM_PARENTNOTIFY:
-                        /* right button click in the status bar */
-                        if (LOWORD(wParam) != WM_RBUTTONDOWN) {
-                            return 1; /* not handled */
-                        }
-                        /* intentionally fall through */
-		case WM_RBUTTONDOWN:
-			/* HBB 20010218: note that this only works in mouse-off
-			 * mode, now. You'll need to go via the System menu to
-			 * access this popup, instead */
-			{
+		case WM_PARENTNOTIFY:
+			/* Message from status bar: anything but context menu
+			   is not handled */
+			if (LOWORD(wParam) != WM_CONTEXTMENU)
+				return 1;
+			/* intentionally fall through */
+		case WM_CONTEXTMENU:
+		{	/* Note that this only works via mouse in `unset mouse`
+			 * mode. You can access the popup via the System menu,
+			 * status bar or keyboard (Shift-F10, Menu-Key) instead. */
 			POINT pt;
-			pt.x = LOWORD(lParam);
-			pt.y = HIWORD(lParam);
-			ClientToScreen(hwnd,&pt);
+			pt.x = GET_X_LPARAM(lParam);
+			pt.y = GET_Y_LPARAM(lParam);
+			if (pt.x == -1) { /* keyboard activation */
+				pt.x = pt.y = 0;
+				ClientToScreen(hwnd, &pt);
+			}
 			TrackPopupMenu(lpgw->hPopMenu, TPM_LEFTALIGN,
 				pt.x, pt.y, 0, hwnd, NULL);
-			}
-			return(0);
+			return 0;
+		}
 		case WM_CREATE:
-			lpgw = ((CREATESTRUCT FAR *)lParam)->lpCreateParams;
+			lpgw = ((CREATESTRUCT *)lParam)->lpCreateParams;
 			SetWindowLong(hwnd, 0, (LONG)lpgw);
 			lpgw->hWndGraph = hwnd;
 			hdc = GetDC(hwnd);
@@ -2827,7 +3202,7 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 			hdc = BeginPaint(hwnd, &ps);
 			SetMapMode(hdc, MM_TEXT);
-			SetBkMode(hdc,OPAQUE);
+			SetBkMode(hdc, OPAQUE);
 			GetPlotRect(lpgw, &rect);
 			SetViewportExtEx(hdc, rect.right, rect.bottom, NULL);
 			/* double buffering */
@@ -2849,7 +3224,7 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			    membmp = CreateCompatibleBitmap(hdc, memrect.right, memrect.bottom);
 			    oldbmp = (HBITMAP)SelectObject(memdc, membmp);
 
-			    /* TODO: we really should cache the results ... */			
+			    /* TODO: we really should cache the results ... */
 			    if (sampling > 1) {
 			        lpgw->sampling = sampling;
 			        DestroyFonts(lpgw);
@@ -2862,7 +3237,7 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			        BitBlt(hdc, 0, 0, width, height, memdc, 0, 0, SRCCOPY);
 			    else {
 			        int stretch = SetStretchBltMode(hdc, HALFTONE);
-			        StretchBlt(hdc, 0, 0, width, height, 
+			        StretchBlt(hdc, 0, 0, width, height,
 			                   memdc,0, 0, memrect.right, memrect.bottom,
 			                   SRCCOPY);
 			        SetStretchBltMode(hdc, stretch);
@@ -2908,13 +3283,7 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 #ifdef USE_MOUSE
 			DestroyCursors(lpgw);
 #endif
-#if __TURBOC__ >= 0x410    /* Borland C++ 3.1 or later */
-			{
-			WORD version = LOWORD(GetVersion());
-			if ((LOBYTE(version)*100 + HIBYTE(version)) >= 310)
-				DragAcceptFiles(hwnd, FALSE);
-			}
-#endif
+			DragAcceptFiles(hwnd, FALSE);
 			if (lpgw->lptw && !IsWindowVisible(lpgw->lptw->hWndParent)) {
 				PostMessage (lpgw->lptw->hWndParent, WM_CLOSE, 0, 0);
 			}
@@ -2936,9 +3305,9 @@ GraphChangeFont(LPGW lpgw, LPCSTR font, int fontsize, HDC hdc, RECT rect)
 
     newfontsize = (fontsize != 0) ? fontsize : lpgw->deffontsize;
     if (font_is_not_empty) {
-	remakefonts = (strcmp(lpgw->fontname, font) != 0) || (newfontsize != lpgw->fontsize);
+		remakefonts = (strcmp(lpgw->fontname, font) != 0) || (newfontsize != lpgw->fontsize);
     } else {
-	remakefonts = (strcmp(lpgw->fontname, lpgw->deffontname) != 0) || (newfontsize != lpgw->fontsize);
+		remakefonts = (strcmp(lpgw->fontname, lpgw->deffontname) != 0) || (newfontsize != lpgw->fontsize);
     }
 
     if (remakefonts) {
@@ -2950,67 +3319,13 @@ GraphChangeFont(LPGW lpgw, LPCSTR font, int fontsize, HDC hdc, RECT rect)
     }
 }
 
+
 /* close the terminal window */
 void WDPROC
 win_close_terminal_window(LPGW lpgw)
 {
    if (lpgw->hWndGraph && IsWindow(lpgw->hWndGraph))
 	SendMessage( lpgw->hWndGraph, WM_CLOSE, 0L, 0L );
-}
-
-#if 0
-int WDPROC
-GraphGetFontScaling(LPGW lpgw, LPCSTR font, int fontsize)
-{
-    HDC hdc;
-    RECT rect;
-    HGDIOBJ hprevfont;
-    OUTLINETEXTMETRIC otm;
-    int shift = 35;
-
-    hdc = GetDC(lpgw->hWndGraph);
-	GetPlotRect(lpgw, &rect);
-    GraphChangeFont(lpgw, font, fontsize, hdc, rect);
-    hprevfont = SelectObject(hdc, lpgw->hfonth);
-    if (GetOutlineTextMetrics(hdc, sizeof(otm), &otm) != 0) {
-        shift = otm.otmptSuperscriptOffset.y - otm.otmptSubscriptOffset.y;
-        shift = MulDiv(shift, GetDeviceCaps(hdc, LOGPIXELSY), 2 * 72);
-        printf( "shift: %i (%i %i)\n", shift*8, otm.otmptSuperscriptOffset.y, otm.otmptSubscriptOffset.y);
-    }
-    SelectObject(hdc, hprevfont);
-
-    return shift * 8;
-}
-#endif
-
-
-unsigned int WDPROC
-GraphGetTextLength(LPGW lpgw, LPCSTR text, LPCSTR fontname, int fontsize)
-{
-    HDC hdc;
-    RECT rect;
-    SIZE size;
-    HGDIOBJ hprevfont;
-    LPWSTR textw;
-
-    hdc = GetDC(lpgw->hWndGraph);
-	GetPlotRect(lpgw, &rect);
-
-    GraphChangeFont(lpgw, fontname, fontsize, hdc, rect);
-
-    hprevfont = SelectObject(hdc, lpgw->hfonth);
-
-    textw = UnicodeText(text, encoding);
-    if (textw) {
-        GetTextExtentPointW(hdc, textw, wcslen(textw), &size);
-        free(textw);
-    } else
-        GetTextExtentPoint(hdc, text, strlen(text), &size);
-    SelectObject(hdc, hprevfont);
-    size.cx += GetTextCharacterExtra(hdc);
-    /* shige: restore original font */
-    GraphChangeFont(lpgw, lpgw->deffontname, lpgw->deffontsize, hdc, rect);
-    return size.cx;
 }
 
 
