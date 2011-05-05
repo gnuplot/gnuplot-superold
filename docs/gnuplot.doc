@@ -1,4 +1,4 @@
-C RCS $Id: gnuplot.doc,v 1.656 2011/03/05 14:43:49 broeker Exp $
+C RCS $Id: gnuplot.doc,v 1.666 2011/05/05 04:14:07 sfeam Exp $
 C
 C Copyright (C) 1986 - 1993, 1998, 1999, 2000, 2001, 2004   Thomas Williams, Colin Kelley et al.
 C
@@ -103,10 +103,11 @@ C
 
  Gnuplot supports many different types of output: interactive screen terminals
  (with mouse and hotkey input), direct output to pen plotters or modern
- printers, and output to many file formats (eps, fig, jpeg, LaTeX, metafont,
- pbm, pdf, png, postscript, svg, ...). Gnuplot is easily extensible to include
- new output modes. Recent additions include interactive terminals based on
- aquaterm (OSX), wxWidgets (multiple platforms), and Qt. 
+ printers, and output to many file formats (eps, emf, fig, jpeg, LaTeX, pdf, png,
+ postscript, ...). Gnuplot is easily extensible to include new output modes.
+ Recent additions include interactive terminals based on aquaterm (OSX),
+ wxWidgets (multiple platforms), and Qt.  Mouseable plots embedded in web pages
+ can be generated using the svg or HTML5 canvas terminal drivers.
 
  The command language of `gnuplot` is case sensitive, i.e. commands and
  function names written in lowercase are not the same as those written in
@@ -118,11 +119,6 @@ C
 
        load "filename"
        cd 'dir'
-
- Many `gnuplot` commands have multiple options. Version 4 is less sensitive
- to the order of these options than earlier versions, but some order-dependence
- remains. If you see error messages about unrecognized options, please try
- again using the exact order listed in the documentation.
 
  Commands may extend over several input lines by ending each line but the last
  with a backslash (\).  The backslash must be the _last_ character on each
@@ -262,15 +258,6 @@ C
  however it is a change in the way the png driver worked for single plots in
  version 4.0.
 
-3 New plot elements
-=circles
-=ellipse
-=polygon
- The `set object` command can now be used to define fixed circles, ellipses, and
- polygons as well as rectangles. There are two corresponding new plot styles:
- `plot with circles` and `plot with ellipses`.  
- See `circle`, `ellipse` and `polygon`.
-
 3 New or revised terminal drivers
  Two new drivers based on the cairo and pango libraries are included,
  `pngcairo` and `pdfcairo`.  These are alternatives to the older libgd-based
@@ -298,10 +285,19 @@ C
 =kdensity
 =cumulative
  New smoothing algorithms have been added for both 2- and 3-dimensional plots.
- `smooth kdensity` and `smooth cumul` can be used with `plot` to draw 
- smooth histograms and cumulative distribution functions, resp. For use
- with `splot` several new smoothing kernels have been added to `dgrid3d`.
+ `smooth kdensity` and `smooth cumulative` can be used with `plot` to draw 
+ smooth histograms and cumulative distribution functions.  Several new smoothing
+ kernels have been added to `dgrid3d` for use with `splot`.
  See `smooth` `dgrid3d`.
+
+3 New time/date handling
+=time
+ Gnuplot now tracks time to millisecond precision. Time formats have been
+ modified to match this. The new built-in function time() returns the current
+ time of day according to the system clock.
+ Example: print the current time to msec precision
+      print strftime("%H:%M:%.3S %d-%b-%Y",time(0.0))
+      18:15:04.253 16-Apr-2011
 
 2 Backwards compatibility
 ?backwards compatibility
@@ -377,8 +373,9 @@ C
  built-in equivalent.  This choice is a configuration option at the time
  gnuplot is built.
 
- The editing commands of the built-in version are given below. The gnu
- readline and BSD libedit libraries have their own documentation.
+ The editing commands of the built-in version are given below. Please note that
+ the action of the DEL key is system-dependent. The gnu readline and BSD libedit
+ libraries have their own documentation.
 
 @start table - first is interactive cleartext form
        `Line-editing`:
@@ -387,12 +384,13 @@ C
        ^F    moves forward a single character.
        ^A    moves to the beginning of the line.
        ^E    moves to the end of the line.
-       ^H    and DEL delete the previous character.
-       ^D    deletes the current character.
+       ^H    deletes the previous character.
+       DEL   deletes the current character.
+       ^D    deletes current character, sends EOF if the line is empty.
        ^K    deletes from current position to the end of line.
        ^L,^R redraws line in case it gets trashed.
        ^U    deletes the entire line.
-       ^W    deletes from the current word to the end of line.
+       ^W    deletes previous word.
 
        `History`:
 
@@ -406,12 +404,13 @@ C
 #\verb~^F~ & move forward a single character.\\
 #\verb~^A~ & move to the beginning of the line.\\
 #\verb~^E~ & move to the end of the line.\\
-#\verb~^H, DEL~ & delete the previous character.\\
-#\verb~^D~ & delete the current character.\\
+#\verb~^H~ & delete the previous character.\\
+#\verb~DEL~ & delete the current character.\\
+#\verb~^D~ & delete current character. EOF if line is empty.\\
 #\verb~^K~ & delete from current position to the end of line.\\
 #\verb~^L, ^R~ & redraw line in case it gets trashed.\\
 #\verb~^U~ & delete the entire line. \\
-#\verb~^W~ & delete from the current word to the end of line. \\ \hline
+#\verb~^W~ & delete previous word. \\ \hline
 # & \multicolumn{1}{|c|}{History} \\ \cline{2-2}
 #\verb~^P~ & move back through history.\\
 #\verb~^N~ & move forward through history.\\
@@ -423,12 +422,13 @@ C
 %^F@move forward a single character.
 %^A@move to the beginning of the line.
 %^E@move to the end of the line.
-%^H, DEL@delete the previous character.
-%^D@delete the current character.
+%^H@delete the previous character.
+%DEL@delete the current character.
+%^D@delete current character. EOF if line is empty.
 %^K@delete from current position to the end of line.
 %^L, ^R@redraw line in case it gets trashed.
 %^U@delete the entire line.
-%^W@delete from the current word to the end of line.
+%^W@delete previous word.
 %_
 %@History
 %^P@move back through history.
@@ -449,12 +449,13 @@ C
 ^<tr>    <td><tt>^F</tt></td>    <td>move forward a single character.</td></tr>
 ^<tr>    <td><tt>^A</tt></td>    <td>move to the beginning of the line.</td></tr>
 ^<tr>    <td><tt>^E</tt></td>    <td>move to the end of the line.</td></tr>
-^<tr>    <td><tt>^H, DEL</tt></td>    <td>delete the previous character.</td></tr>
-^<tr>    <td><tt>^D</tt></td>    <td>delete the current character.</td></tr>
+^<tr>    <td><tt>^H</tt></td>    <td>delete the previous character.</td></tr>
+^<tr>    <td><tt>DEL</tt></td>    <td>delete the current character.</td></tr>
+^<tr>    <td><tt>^D</tt></td>    <td>delete current character. EOF if line is empty</td></tr>
 ^<tr>    <td><tt>^K</tt></td>    <td>delete from current position to the end of line.</td></tr>
 ^<tr>    <td><tt>^L, ^R</tt></td>    <td>redraw line in case it gets trashed.</td></tr>
 ^<tr>    <td><tt>^U</tt></td>    <td>delete the entire line.</td></tr>
-^<tr>    <td><tt>^W</tt></td>    <td>delete from the current word to the end of line.</td></tr>
+^<tr>    <td><tt>^W</tt></td>    <td>delete previous word.</td></tr>
 ^</tbody>
 ^<tbody>
 ^<tr>    <th></th>                <th>History</th></tr>
@@ -548,6 +549,10 @@ C
  the remainder of columns 2 and 4 to draw the required line:
 
    plot 'datafile' using 1:(f($2)/$4) with lines title columnhead(2)
+
+ Another example:
+
+   plot for [i=2:6] 'datafile' using i title "Results for ".columnhead(i)
 
  See `set style labels`, `using xticlabels`, `plot title`, `using`.
 2 Enhanced text mode
@@ -877,6 +882,7 @@ C
 ^</thead>
 ^<tbody>
 ^<tr>    <td>column(x)</td>    <td>int</td>    <td> column <i>x</i> during datafile manipulation.</td></tr>
+^<tr>    <td>columnhead(x)</td>    <td>int</td>    <td> string containing first entry of column <i>x</i> in datafile.</td></tr>
 ^<tr>    <td>defined(X)</td>    <td>variable name</td>    <td> [DEPRECATED] returns 1 if X is defined, 0 otherwise.</td></tr>
 ^<tr>    <td>exists("X")</td>    <td>string</td>    <td> returns 1 if a variable named X is defined, 0 otherwise.</td></tr>
 ^<tr>    <td>stringcolumn(x)</td>    <td>int</td>    <td> content column <i>x</i> as a string.</td></tr>
@@ -1416,6 +1422,15 @@ C marker below is used to signal this to doc2html:
  `column(x)` may be used only in expressions as part of `using` manipulations
  to fits or datafile plots.  It evaluates to the numerical value of the contents
  of column x. See `plot datafile using`.
+4 columnhead
+?expressions functions columnhead
+?functions columnhead
+?columnhead
+#columnhead(x) & int & string containing first entry of column $x$ in datafile. \\
+%columnhead(x)@int@ string containing first entry of column $x$ in datafile.
+ `columnhead(x)` may only be used in expressions as part of `using` manipulations
+ to fits or datafile plots.  It evaluates to a string containing the contents of
+ column x in the first line of data. See `plot datafile using`.
 4 defined
 ?expressions functions defined
 ?functions defined
@@ -2584,6 +2599,18 @@ C^ <img align=bottom src="http://www.gnuplot.info/doc/userdefined.gif" alt="[use
  Macro expansion does not occur inside either single or double quotes.
  However macro expansion does occur inside backquotes.
 
+ Macro expansion is handled as the very first thing the interpreter does when
+ looking at a new line of commands and is only done once. Therefore, code like
+ the following will execute correctly:
+
+      A = "c=1"
+      @A
+
+ but this line will not, since the macro is defined on the same line
+ and will not be expanded in time
+
+      A = "c=1"; @A   # will not expand to c=1
+
  For execution of complete commands the `evaluate` command may also be handy.
 3 String variables, macros, and command line substitution
 ?mixing_macros_backquotes
@@ -3236,6 +3263,13 @@ Ffigure_fsteps
 ^ <a href="http://www.gnuplot.info/demo/steps.html">
  steps demo.
 ^ </a>
+2 fillsteps
+?commands set style fillsteps
+?set style fillsteps
+?style fillsteps
+?fillsteps
+ The `fillsteps` style is exactly like `steps` except that the area between
+ the curve and y=0 is filled in the current fill style.  See `steps`.
 2 histeps
 ?commands set style histeps
 ?set style histeps
@@ -3631,9 +3665,7 @@ Ffigure_points
  1 or 2 columns of basic input data are required in 2D plots; 1 or 3 columns are
  required in 3D plots.  See `style lines`.  Additional input columns may be used
  to provide information such as variable point size or variable point color.
-       
-       
-       
+
 2 polar
 Ffigure_polar
  Polar plots are not really a separate plot style but are listed here for
@@ -3642,7 +3674,7 @@ Ffigure_polar
  Many, but not all, 2D plotting styles work in polar mode.
  The figure shows a combination of plot styles `lines` and `filledcurves`.
  See `set polar`, `set rrange`, `set size square`.
-       
+
 2 steps
 ?commands set style steps
 ?set style steps
@@ -3655,7 +3687,8 @@ Ffigure_steps
  second from (x2,y1) to (x2,y2).  The input column requires are the same as for
  plot styles `lines` and `points`.  The difference between `fsteps` and `steps`
  is that `fsteps` traces first the change in y and then the change in x.
- `steps` traces first the change in x and then the change in y.
+ `steps` traces first the change in x and then the change in y.  To fill the
+ area between the curve and the baseline at y=0, use `fillsteps`.
  See also
 ^ <a href="http://www.gnuplot.info/demo/steps.html">
  steps demo.
@@ -5397,7 +5430,8 @@ C^ <img align=bottom src="http://www.gnuplot.info/doc/population.gif" alt="[popu
  externally or by using `fit` with an appropriate model.
 
  Syntax:
-       smooth {unique | frequency | cumulative | cnormal | kdensity | csplines | acsplines | bezier | sbezier}
+       smooth {unique | frequency | cumulative | cnormal | kdensity 
+                      | csplines | acsplines | bezier | sbezier}
 
  `unique`, `frequency`, `cumulative` and `cnormal` plot the data after
  making them monotonic.  Each of the other routines uses the data to
@@ -6149,24 +6183,19 @@ C^ <img align=bottom src="http://www.gnuplot.info/doc/population.gif" alt="[popu
 ?plot title
 ?splot title
 ?columnheader
- A line title for each function and data set appears in the key, accompanied
- by a sample of the line and/or symbol used to represent it.  It can be
- changed by using the `title` option.
+ By default each plot is listed in the key by the corresponding function or file
+ name. You can give an explicit plot title instead using the `title` option.
 
  Syntax:
        title <text> | notitle [<ignored text>]
        title columnheader | title columnheader(N)
 
- where <text> must either be a quoted string or a string variable.
- The quotes will not be shown in the key.  A special character may be given as
- a backslash followed by its octal value ("\345").  The tab character "\t" is
- understood.  Note that backslash processing occurs only for strings enclosed
- in double quotes---use single quotes to prevent such processing.  The newline
- character "\n" is not processed in key entries in either type of string.
+ where <text> is a quoted string or an expression that evaluates to a string.
+ The quotes will not be shown in the key.
 
  There is also an option that will interpret the first entry in a column of
  input data (i.e. the column header) as a text field, and use it as the key
- title.  See `datastrings`.  This can be made the default by speicifying
+ title.  See `datastrings`.  This can be made the default by specifying
  `set key autotitle columnhead`.
 
  The line title and sample can be omitted from the key by using the keyword
@@ -7810,7 +7839,7 @@ C^ <img align=bottom src="http://www.gnuplot.info/doc/population.gif" alt="[popu
     cp1250      - codepage for MS Windows, Central and Eastern Europe
     cp1251      - codepage for 8-bit Russian, Serbian, Bulgarian, Macedonian
     cp1254      - codepage for MS Windows, Turkish (superset of Latin5)
-    sjis        - shift-JIS Japanese encoding (postscript and svg only)
+    sjis        - shift-JIS Japanese encoding
     utf8        - variable-length (multibyte) representation of Unicode
                   entry point for each character
 
@@ -9910,6 +9939,8 @@ C^ <img align=bottom src="http://www.gnuplot.info/doc/population.gif" alt="[popu
 =median
 =min
 =max
+ `3 columns of data (x,y,z)`:
+
  The coloring setup as well as the color box drawing are determined by
  `set palette`.  There can be only one palette for the current plot.  Drawing
  of several surfaces with different palettes can be achieved by `multiplot`
@@ -9932,6 +9963,17 @@ C^ <img align=bottom src="http://www.gnuplot.info/doc/population.gif" alt="[popu
  contributing to the color of any quadrangle.  For example, applying the pm3d
  algorithm to the 4x4 grid of data points in script `demo/pm3d.dem` (please have
  a look) produces only (4-1)x(4-1)=9 colored rectangles.
+
+ `4 columns of data (x,y,z,color)`:
+
+ If a fourth column of data is provided, it is normally interpreted as a 
+ separate palette-mapped gray value. The coloring of individual quadrangles
+ works as above, except that the color value is distinct from the z value.
+ As a separate coloring option, the fourth data column may provide instead
+ an RGB color. See `rgbcolor variable`. In this case the plotting command
+ must be
+
+       splot ... using 1:2:3:4 with pm3d lc rgb variable
 
  Another drawing algorithm, which would draw quadrangles around a given node
  by taking corners from averaged (x,y)-coordinates of its surrounding 4 nodes
@@ -10146,11 +10188,11 @@ C^ <img align=bottom src="http://www.gnuplot.info/doc/population.gif" alt="[popu
 ?set palette defined
 ?palette defined
 =colors
- Gray-to-rgb mapping can be manually set by use of `palette defined`:  A color gradient
- is defined and used to give the rgb values.  Such a  gradient is a piecewise
- linear mapping from gray values in [0,1] to the RGB space [0,1]x[0,1]x[0,1].
- You have to specify the gray values and the corresponding RGB values in
- between a linear interpolation shall take place:
+ Gray-to-rgb mapping can be manually set by use of `palette defined`:
+ A color gradient is defined and used to give the rgb values.  Such a gradient
+ is a piecewise linear mapping from gray values in [0,1] to the RGB space
+ [0,1]x[0,1]x[0,1].  You must specify the gray values and the corresponding RGB
+ values between which linear interpolation will be done.
 
  Syntax:
        set palette  defined { ( <gray1> <color1> {, <grayN> <colorN>}... ) }
@@ -12979,21 +13021,13 @@ C^ <img align=bottom src="http://www.gnuplot.info/doc/splot.gif" alt="[splot.gif
 
 1 Bugs
 ?bugs
- Bugs reported since the current release as well as older ones
- may be located via the official distribution site on SourceForge.
-
- Please e-mail bug reports to the gnuplot-bugs mailing list.
- Or upload the report to the gnuplot web site on SourceForge.
+ Please e-mail bug reports to the gnuplot-bugs mailing list or
+ upload the report to the gnuplot web site on SourceForge.
  Please give complete information on the version of gnuplot you are using
  and, if possible, a test script that demonstrates the bug.
  See `seeking-assistance`.
 
- The sections below list problems known to be present in gnuplot version 4.4 at
- the time of release.  Some of these are actually bugs in external support
- libraries and may have been fixed independent of any changes in gnuplot.
-
-2 Gnuplot limitations
-?bugs gnuplot
+2 known limitations
 =gamma
 =bessel
 =timefmt
@@ -13012,11 +13046,8 @@ C^ <img align=bottom src="http://www.gnuplot.info/doc/splot.gif" alt="[splot.gif
  This means that multiplots whose constituent plots use different palettes
  will not display correctly in x11.
 
- Coordinates specified as "time" wrap at 24 hours, and have a precision limited
- to 1 second.  This is in particular a limitation in using time format to
- handle geographic coordinates.
-
- Error bars are not handled properly in polar/spherical coordinate plot modes.
+ Coordinates specified as "time" wrap at 24 hours. This is in particular
+ a limitation in using time format to handle geographic coordinates.
 
  The 'nohidden3d' option that is supposed to exempt individual plots from the
  global property 'set hidden3d' does not work for parametric curves.
