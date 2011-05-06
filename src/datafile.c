@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: datafile.c,v 1.193 2010/11/07 11:54:23 juhaszp Exp $"); }
+static char *RCSid() { return RCSid("$Id: datafile.c,v 1.197 2011/05/06 05:48:25 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - datafile.c */
@@ -87,13 +87,15 @@ static char *RCSid() { return RCSid("$Id: datafile.c,v 1.193 2010/11/07 11:54:23
  *      reads a line, does all the 'index' and 'using' manipulation
  *      deposits values into vector[]
  *      returns
- *          number of columns parsed  [0=not blank line, but no valid data],
- *          DF_EOF for EOF
+ *          number of columns parsed  [0 = not a blank line, but no valid data],
+ *          DF_EOF - end of file
  *          DF_UNDEFINED - undefined result during eval of extended using spec
  *          DF_MISSING - requested column matched that of 'set missing <foo>'
- *          DF_FIRST_BLANK for first consecutive blank line
- *          DF_SECOND_BLANK for second consecutive blank line
- *            will return FIRST before SECOND
+ *          DF_FIRST_BLANK - first consecutive blank line
+ *          DF_SECOND_BLANK - second consecutive blank line
+ *          DF_FOUND_KEY_TITLE  - only relevant to first line of data
+ *          DF_KEY_TITLE_MISSING  and only for 'set key autotitle columnhead'
+ *          DF_STRINGDATA - not currently used by anyone
  *
  * if a using spec was given, lines not fulfilling spec are ignored.
  * we will always return exactly the number of items specified
@@ -638,16 +640,6 @@ df_tokenise(char *s)
     for (i = 0; i<MAXDATACOLS; i++)
 	df_tokens[i] = NULL;
 
-#if (0)	/* Mar 2009 */
-    /* This code was broken by moving the check for 'title columnheader' elsewhere.*/
-    /* Auto-titling of histograms is a bit tricky because the x coord did not come */
-    /* from an explicit input column. This means our previous guess of what column */
-    /* to take the title from was probably wrong.                                  */
-    if (key_title_auto_col && df_current_plot
-    &&  (df_current_plot->plot_style == HISTOGRAMS))
-	column_for_key_title = use_spec[0].column;
-#endif
-
 #define NOTSEP (*s != df_separator)
 
     df_no_cols = 0;
@@ -659,8 +651,9 @@ df_tokenise(char *s)
 	    df_column = gp_realloc(df_column,
 				new_max * sizeof(df_column_struct),
 				"datafile column");
-	    while (df_max_cols < new_max)
-		df_column[df_max_cols++].datum = 0;
+	    for (; df_max_cols < new_max; df_max_cols++) {
+		df_column[df_max_cols].datum = 0;
+	    }
 	}
 
 	/* have always skipped spaces at this point */
@@ -1398,7 +1391,7 @@ plot_option_using(int max_using)
 		use_spec[df_no_use_specs++].column = at_highest_column_used;
 
 	    /* FIXME EAM - It would be nice to handle these like any other */
-	    /* internal function via perm_at() but there are problems.     */
+	    /* internal function via perm_at() but it doesn't work.        */
 	    } else if (almost_equals(c_token, "xtic$labels")) {
 		plot_ticlabel_using(CT_XTICLABEL);
 	    } else if (almost_equals(c_token, "x2tic$labels")) {
@@ -1420,7 +1413,7 @@ plot_option_using(int max_using)
 		    int_error(c_token, "Column must be >= -2");
 		use_spec[df_no_use_specs++].column = col;
 
-		/* Supposed only happens for binary files, but don't bet on it */
+		/* Supposedly only happens for binary files, but don't bet on it */
 		if (col > no_cols)
 		    no_cols = col;
 	    }
@@ -2150,6 +2143,22 @@ f_stringcolumn(union argument *arg)
     }
 }
 
+/*{{{  void f_columnhead() */
+void
+f_columnhead(union argument *arg)
+{
+    struct value a;
+
+    if (!evaluate_inside_using)
+	int_error(c_token-1, "columnhead() called from invalid context");
+
+    (void) arg;                 /* avoid -Wunused warning */
+    (void) pop(&a);
+    column_for_key_title = (int) real(&a);
+    push(Gstring(&a, "@COLUMNHEAD@"));
+}
+
+
 /*{{{  void f_valid() */
 void
 f_valid(union argument *arg)
@@ -2349,8 +2358,17 @@ df_set_key_title(struct curve_points *plot)
     }
 
     /* What if there was already a title specified? */
-    if (plot->title && !plot->title_is_filename)
-	return;
+    if (plot->title && !plot->title_is_filename) {
+	char *placeholder = strstr(plot->title, "@COLUMNHEAD@");
+	char *newtitle = NULL;
+	if (!placeholder)
+	    return;
+	newtitle = gp_alloc(strlen(plot->title) + strlen(df_key_title),"plot title");
+	*placeholder = '\0';
+	sprintf(newtitle, "%s%s%s", plot->title, df_key_title, placeholder+12);
+	free(df_key_title);
+	df_key_title = newtitle;
+    }
     if (plot->title_is_suppressed)
 	return;
     if (plot->title)
@@ -2366,9 +2384,8 @@ df_set_key_title(struct curve_points *plot)
  * Called from eval_plots(), eval_3dplots() while parsing the plot title option
  */
 void
-df_set_key_title_columnhead(enum PLOT_TYPE plot_type)
+df_set_key_title_columnhead(struct curve_points *plot)
 {
-    FPRINTF((stderr,"df_set_key_title_columnhead: column_for_key_title was %d, ",column_for_key_title));
     c_token++;
     if (equals(c_token,"(")) {
 	c_token++;
@@ -2379,12 +2396,12 @@ df_set_key_title_columnhead(enum PLOT_TYPE plot_type)
     } else {
 	if (df_no_use_specs == 1)
 	    column_for_key_title = use_spec[0].column;
-	else if (plot_type == DATA3D)
+	else if (plot->plot_type == DATA3D)
 	    column_for_key_title = use_spec[2].column;
 	else
 	    column_for_key_title = use_spec[1].column;
     }
-    FPRINTF((stderr," setting to %d\n",column_for_key_title));
+    FPRINTF((stderr,"df_set_key_title_columnhead: column_for_key_title set to %d\n",column_for_key_title));
 }
 
 static char *
@@ -2973,7 +2990,7 @@ plot_option_binary(TBOOLEAN set_matrix, TBOOLEAN set_default)
 			    binary_input_function = df_bin_filetype_table[i].value;
 		}
 		if (binary_input_function == auto_filetype_function)
-		    int_warn(NO_CARET, "Unrecognized filetype; try \"show datafile binary filetypes\"");
+		    int_error(NO_CARET, "Unrecognized filetype; try \"show datafile binary filetypes\"");
 	    }
 
 	    /* Unless only querying settings, call the routine to prep binary data parameters. */

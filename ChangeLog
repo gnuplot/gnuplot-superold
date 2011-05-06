@@ -1,3 +1,635 @@
+2011-05-05  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.h src/datafile.c src/plot2d.c src/plot3d.c:
+	Change prototype of df_set_key_title_columnhead() to match that of
+	df_set_key_title().
+
+2011-05-05  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* term/win.trm (WIN_set_font) src/win/wgraph.c (drawgraph): Defer
+	determination of default font name and size. Fixes bug addressed
+	by change of 2010-02-22, but without the need for do_string_replot()
+
+	* src/win/wgraph.c (drawgraph): New variable fill_color to track
+	color of fills. Use cached color brush for transparent solid fills
+	instead of creating a new one.
+
+	* src/win/wgraph.c (drawgraph) src/win/wgdiplus.c|h: Add support for
+	antialiased solid filled (transparent) polygons.
+
+	* src/win/wpause.c (WndPauseProc): Use default dialog font instead of
+	fixed width font for pause dialog.
+
+	* src/readline.c (readline): Tab is a printable character in some
+	locales, ie. isprint(TAB)>0.
+
+	* src/win/wgraph.c (MakeFonts): Reduce size of tics and point symbols
+	by 20%.
+
+2011-05-04  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* config/mingw/Makefile: Build support for lua tikz related TeX files.
+	Use Makefile.maint to update version.c. Update install target to match
+	directory layout of distribution and include share/lua/, share/LaTeX/, 
+	contrib/, demo/, README, NEWS, Copyright and ChangeLog.
+
+2011-05-02  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/variable.c (locale_handler): If built-in readline character input
+	is to recognize UTF-8 characters via wcwidth(), it is necessary to 
+	initialize the CTYPE locale on entry. "set encoding utf" is not
+	sufficient.
+
+2011-05-02  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/readline.c (tab_completion, fn_completion, readline) NEWS:
+	Cycling variant of filename tab-completion for builtin readline.
+
+	* src/stdfn.c|h (strnlen, strndup) configure.in config/config.nt
+	config/config.mgw config/config.oww: Support functions used by
+	tab-completion code.
+
+	* src/stdfn.c|h (opendir, closedir, rewinddir): Add Kevlin Henney's
+	POSIX directory browsing functions and types for Win32.
+
+	* src/readline.c (mbwidth, isdoublewidth) configure.in: Determine
+	on screen width of utf8 encoded characters with wcwidth() if
+	provided by the system.
+
+	* src/readline.c (delete_previous_word): Overprint with exact
+	number of spaces, add NUL at eol.
+
+2011-04-30  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/readline.c (clear_eoline): More efficient clear line algorithm.
+
+2011-04-29  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/mouse.c (apply_zoom):  Prevent double-free of custom font for tic
+	labels.
+	Bug #3294915
+
+2011-04-28  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	Support for (optional) antialiasing in windows terminal via GDI+.
+
+	* config/config.mgw, config/config.nt: Compilers have support for
+	GDI+: define HAVE_GDIPLUS. Note: OpenWatcom might not support GDI+
+	* config/mingw/Makefile: Include new files wgdiplus.h|cpp in build,
+	add library gdiplus.
+	* src/win/wgdiplus.cpp src/win/wgdiplus.h: New files. C interface
+	to Windows GDI+ library. Currently supports polylines and circles.
+	* src/win/wgnuplib.h src/win/wgraph.c src/win/winmain.c
+	src/win/wresourc.h: Implement antialiasing for lines and and most point
+	shapes. Add option to LPGW, wgnuplot.ini and popup menu to toggle
+	antialiasing on and off. Default to oversampling off now that we have
+	proper antialiasing. Wrap all GDI+ code in #ifdef HAVE_GDIPLUS.
+
+	* src/win/wgraph.c (drawgraph) [W_fillstyle, FS_PATTERN]: Fix cycling
+	of pattern styles.
+
+	* src/wxterminal/gp_cairo.c|h (gp_cairo_default_font)
+	src/wxterminal/wxt_gui.c: New function to determine default font.
+	Default is "Sans" on all systems but Windows where this alias might
+	not work work in all cases.
+
+2011-04-27  <wtf3@users.sourceforge.net>
+
+	* src/graphics.c:  The autotitle option for column-stacked histograms
+	should honor "set key maxrows N".
+	Bug #3281635
+
+2011-04-27  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/command.c (help_command) src/win/winmain.h src/win/winmain.c
+	(WinExit, ShutDown, WinCloseHelp, WinMain): Work-around for apparently
+	well known html help bug, which causes spurious crashes on exit. Keep
+	track of help window handle and try to close the window as soon as 
+	possible. New function WinCloseHelp.
+
+	Extensive update to color, linetype and fillstyle handling in windows
+	terminal. Fixes several bugs and implements new options.
+
+	* term/win.trm (WIN_id, WIN_opts, WIN_options): Add options "solid",
+	"dashed", "background", "fontscale" and "linewidth". Call new function
+	GraphInitStruct to initialize graphwin. Inlcude font in term_options.
+	* term/win.trm (WIN_point, WIN_filled_polygon): Handle dashed lines
+	in drawgraph, not here. (WIN_filled_polygon): Use generalized
+	W_fillstyle call, shared with WIN_boxfill. (WIN_boxfill): Pass second
+	corner as parameter, not width and height. Fixes spurious rounding
+	errors during translation to graph coordinates. (help text): Document
+	new options.
+	* src/win/wgnuplib.h (GW): Reorder entries according to function.
+	* src/win/wgraph.c (pattern_bitmaps): Fix double cross-hatch.
+	(GraphInitStruct): New function. (MakePens, DestroyPens): Account for
+	linewidth and sampling and create an additional "null" pen which is
+	used for filled polygons and boxes. (MakeFonts, GraphEnhancedOpen)
+	Account for fontscale. (draw_new_pens, draw_new_brush) New functions
+	to (re)create brushes and pens. Always create a "solid" partner for
+	the possibly "dashed" pen. Called by drawgraph.
+	* src/win/wgraph.c (drawgraph): Reorder variables according to
+	function. [W_line_type]: Save last LOGPEN instead of pen index. Make 
+	use of draw_new_pens. Select background brush for line-type <= 
+	LT_NODRAW (fix by Shigeharu Takeno, Bug 3192205). [W_fillstyle]: Unify
+	code for filled boxes and polygons. Use draw_new_brush. [W_boxfill]:
+	Fillstyle is now set by previous call to W_fillstyle. Change interface
+	from relative (width, height) to absolute position to avoid off by one
+	rounding errors. Deselect brush use for transparent fill before
+	deleting it. [W_line_width] Scale by linewidth option. [W_setcolor]
+	Use save LPOGEN to create pens with new color. Use draw_new_brush and
+	draw_new_pens to recreate brushes and pens. [W_filled_polygon_draw]
+	Fillstyle is now set by previous call to W_fillstyle. Use "null" pen
+	to avoid drawing a border around filled area. [W_image] Avoid static
+	variables. [W_plus,...] Use solid pen. Fixes point symbols drawn with 
+	dashed lines. Adresses Bug 1952364.
+
+2011-04-26  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/readline.c:  Revise the built-in readline code to handle UTF-8
+	encoded character input. The revised code is only active if the user
+	has explicitly done "set encoding utf8" or "set encoding locale", but
+	probably it should be the default in a UTF-8 locale.
+
+	* src/readline.c (clear_line): More efficient clear line algorithm.
+
+2011-04-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot.c (main) src/misc.c (load_file): Initializing c_token to an
+	illegal value is not a good idea.
+	Bug #3292512
+
+2011-04-23  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* docs/gnuplot-ja.doc docs/term-ja.diff:  sync to docs version 1.664.
+	* docs/Makefile.in (wxhelp/doc2html.o): Add missing space.
+
+2011-04-22  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/readline.c docs/gnuplot.doc:  Built-in readline did not recognize
+	the character sequence produced by the DEL key on many keyboards.  Trap
+	this sequence for interpretation as "forward delete", which is what the
+	same key does under windows and gnu libreadline.  This does not affect 
+	keyboards or xmodmap configurations where the DEL key produces another
+	sequence entirely.
+
+2011-04-22  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/readline.c:  The behavior of ^W was not consistent with the
+	documentation. Change it to match gnu libreadline (delete previous
+	partial or full word).
+
+2011-04-20  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gplt_x11.c:  Most of the messages passed via the title bar
+	of the X Display window are controlled by #ifdef TITLE_BAR_DRAWING_MSG.
+	Do the same for the "allocating colors..." message.
+
+2011-04-19  Hans-Bernhard Broeker  <broeker@physik.rwth-aachen.de>
+
+	* config/Makefile.am.in (Makefile.am): Additional files to become
+	part of the distributed tarball.  Reindented.
+
+2011-04-19  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (f_columnhead df_set_key_title) src/datafile.h
+	src/eval.c src/plot2d.c (eval_plots) docs/gnuplot.doc:
+
+	New function columnhead(N) that returns a string containing column N
+	from the first line of a data set. 'plot ... title columnhead(i)'
+	was previously implemented as a keyword; making it a function instead
+	allows, for example,
+	'plot for [i=3:6] ... title "Results of ".columnhead(i)'
+
+2011-04-19  Hans-Bernhard Broeker  <broeker@physik.rwth-aachen.de>
+
+	* docs/Makefile.in (wxhelp/doc2html, gnuplot.htb): Ooops.
+	Yesterday's directory name change to windows was wrong.  Undoing
+	it.
+
+2011-04-18  Hans-Bernhard Broeker  <broeker@physik.rwth-aachen.de>
+
+	* term/Makefile.am.in: Use $< where applicable.
+	($(srcdir)/lua/gnuplot-tikz.help): Make workable outside the
+	source tree.  Use $< and $@ where applicable.
+
+	* docs/Makefile.in (CLEANFILES): Fix broken directory name;
+	indent.
+	(gnuplot.htb): Fix broken directory name.  Make workable in
+	out-of-source builds.
+	(windows/wgnuplot.html, windows/doc2html.o, windows/doc2html): Fix
+	wrong directory name.
+
+	* Makefile.maint (amfiles): Missing semicolon.
+
+2011-04-18  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wgraph.c (drawgraph): Fractional solid fill based on SF
+	Patch 2905570 by Shigeharu Takeno. Remove halftone brushes.
+	Eliminate static variable to keep track of pm3d brushes.
+
+2011-04-17  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* config/mingw/Makefile: Use $^ and $< where applicable. Patch by
+	Benjamin Lindner, SF Patch 2468650. Set TARGET only if it's not
+	already defined. GNUPLOT_LUA_DIR was included twice in
+	TERMOPTIONS. GNUPLOT_PS_DIR is required by show.c. [wgnuplot.chm]
+	Avoid changing directory via shell which seem not to work reliably
+	on all systems.
+
+2011-04-17  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* config/Makefile.am.in:  Fix package-build breakage.
+
+2011-04-17  Hans-Bernhard Broeker  <broeker@physik.rwth-aachen.de>
+
+	Building the three different types of executable for Windows
+	was quite cumbersome (change make variable, make clean, build,
+	all that thrice).  Compiling to three different object file name
+	extensions helps with that.
+
+	* config/watcom/Makefile (VARIANT): New macro to choose among
+	targets.
+	(TARGETS_PLAIN, EXTRA_CPPFLAGS_PLAIN, TARGETS_PIPES)
+	(EXTRA_CPPFLAGS_PIPES, TARGETS_CONSOLE, EXTRA_CPPFLAGS_CONSOLE):
+	New macros for settings particular to one variant.
+	(DEFAULT_TARGETS): Changed definition to use new per-variant
+	macros.
+	(ALL_TARGETS): New macro listing all things that can be built.
+	(all): New target building all variants without the need to make
+	clean in between.
+	(WIN_EXTRA_INPUTS): Removed $(WINOBJS)
+	(OBJS): Add $(WINOBJS) here instead.
+	(CONSOLE_OBJS, PIPE_OBJS): Copies of $(OBJS) with different object
+	filename extension.
+	Use $(O) in favour of fixed .obj, to allow renaming trick.
+	(.EXTENSIONS): Add .cobj and .pobj to list of recognized file name
+	extensions.
+	(.c.cobj): New implicit rule to compile sources for the console build.
+	(.c.pobj): New implicit rule for pipe-enabled build.
+	(wgnuplot.exe): $(WINOBJS) is contained in $(OBJS) now.
+	(wgnuplot_pipes.exe): Use $(PIPE_OBJS) instead of $(OBJS)
+	(gnuplot.exe): USE $(CONSOLE_OBJS) instead of $(OBJS)
+	(term.cobj): New explicit rule to compile term.c for the console build.
+	(term.pobj): New explicit rule to compile term.c for the pipe build.
+	(.c): Added windows source subdirectory to VPATH search list.
+	(w*.obj): Removed unnecessary explicit rules for Windows-specific
+	files.
+	(clean): Remove object files with new names.
+
+	* config/watcom/.cvsignore: Add new file name extensions to ignore.
+
+2011-04-17  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* config/makefile.cyg config/makefile.mgw config/makefile.unx
+	cygwin/Makefile mingw/Makefile: Remove dependencies on
+	wgnuplot.def and wgnuplib.def.
+
+	* src/wgnuplib.def: Removed
+
+2011-04-16  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* config/config.amg config/makefile.msc config/term.pc.h
+	config/makefile.win config/makefile.ztc src/win/wgnuplot.def
+	src/win/wgnupl32.def: Remove build files for no longer supported
+	platforms DOS16, WIN16, Amiga and compilers.
+
+	* src/ansicheck.h src/command.c src/eval.h src/stdfn.h
+	src/syscfg.h src/term.c src/term.h src/makefile.all
+	src/makefile.awc docs/Makefile.in term/fg.trm : Remove suport for
+	the Zortech compiler and the no longer available Flash Graphics
+	library.
+
+2011-04-15  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (plot_steps) src/gp_types.h src/graph3d.c
+	src/tables.c docs/gnuplot.doc docs/plotstyles.gnu: 
+	New plot style "with fillsteps" is identical to "with steps" except
+	that the area between the stepped line and the baseline at y=0 is
+	filled using the currently active fill style.
+
+	* src/graphics.c (plot_fsteps, histeps_vertical)
+	(histeps_horizontal): Simplify the code to use clip_line() rather
+	than lots of in-line tests.
+
+	* term/dumb.trm docs/gnuplot.doc: Updates
+
+2011-04-15  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/readline.c (msdos_getch, readline), src/win/winmain.c
+	(ConsoleGetch): Don't quit on DEL on an empty line. Map DEL key to del
+	character 127 instead of ^D, but keep old behaviour of deleting current
+	character on platforms Windows, MSDOS and OS/2. SF Bug #3285571
+
+2011-04-13  Peter Hedwig <peter@affenbande.org>
+
+	* term/lua/gnuplot-tikz.lua:  Fix "charsize" option.
+
+2011-04-13  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/canvas.trm term/gd.trm term/svg.trm term/x11.trm src/misc.c:
+	Stricter checks that the red component of RGB colors stays in range.
+
+2011-04-13  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wgraph.c (WndGraphProc), src/win/wtext.c (WndTextProc):
+	Enable access to popup menu via status bar and keyboard.
+
+2011-04-12  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wtext.c (WndParentProc) [WM_SIZE]: Ignore requests to set
+	window size to 0,0. Fixes crash on Vista if Windows-D is pressed.
+
+2011-04-11  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/js/gnuplot_common.js: Fix the clipping of filled rectangles
+	when zoomed.
+
+2011-04-11  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* src/config/mingw/Makefile: Fixed relative directories in RCFLAGS.
+
+2011-04-10  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/term/win.trm, src/win/wgraph.c, src/win/wgnuplib.h: Renew text
+	handling: Process enhanced text in drawgraph(), new functions
+	GraphEnhancedOpen(), GraphEnhancedFlush(), revised GraphGetTextLength().
+	This most notably fixes behaviour when resizing the graph window. Collect
+	static variables used for the internal state of enhanced text processing
+	into a struct. Move code out of main loop of drawgraph: New functions
+	draw_put_text(), draw_text_justify(), draw_enhanced_text(). Fix baseline
+	alignment of normal and enhanced text. Text position was moving in wrong
+	direction for rotated enhanced text (fix replaces change dated
+	2011-02-11). Remove unused function GraphGetFontScaling(). Fix text
+	positioning of enhanced text with oversampling.
+
+	* term/win.trm (WIN_graphics): Update character and window size.
+	* src/win/wgraph.c (WndGraphProc): Remove another Win16 relict.
+	* term/win.trm, src/win/wgnuplib.h, src/win/wgraph.c: Remove LPGW.resized,
+	rename commands no longer exclusively used for pm3d.
+	* src/win/wgraph.c (UnicodeText): Add codepage 1250.
+	* term/win.trm (WIN_Init), src/win/wgraph.c (GraphInit): Move loading of
+	icon.
+	* term/win.trm (WIN_scale): Removed.
+	* term/win.trm (WIN_options), src/win/winmain.c (WinMain): Eliminate need
+	for static variable WIN_gtitle.
+	* term/win.trm (WIN_set_pointsize), src/win/wgraph.c (drawgraph)
+	[W_pointsize]: Don't pass size as string.
+	* src/win/wgraph.c (drawgraph) [W_line_type]: Only init LOGBRUSH lb
+	if it is used.
+	* term/win.trm, src/win/wgraph.c: Various small code cleanups.
+
+2011-04-09  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/svg.trm term/js/gnuplot_svg.js:  Draw all grid lines with
+	attribute class="gridline". Add an icon to toggle on/off lines with this
+	attribute.  Move both this icon and the mouse coordinate tracking box to
+	the end of the output *.svg file so that they cannot be occluded by plot
+	elements.
+
+	* term/svg.trm (SVG_PathClose): Firefox 3.x fails to render purely
+	vertical lines. This is particularly noticeable because all vertical
+	grid lines are missing.  Work around this by adding 0.01 to the final
+	x coordinate.
+
+2011-04-08  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/svg.trm: Adjust enhanced text placement, removing some kludges
+	that appear not to be necessary with the current generation of browsers.
+
+	* term/svg.trm term/js/gnuplot_svg.js:  Implement mouse tracking
+	framework. 
+
+2011-04-07  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.h term/svg.trm demo/html/webify_svg.pl demo/html/Makefile.svg
+	demo/html/Makefile.svg:  Add bitmap image handling to the svg terminal
+	using the same mechanism of external png files used by the canvas and 
+	tikz terminals.
+
+	* term/svg.trm(SVG_init): Konqueror (KDE 4.5) crashes if the xlink to
+	gnuplot_svg.js fails to load.  Work around this by adding a test for the
+	presence of gnuplot_svg before initializing.
+
+2011-04-06  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* term/win.trm, src/win/wgnuplib.h, src/win/wgraph.c: Use UINTs
+	instead of DWORDs in struct GWOP.
+
+	* src/win/wgraph.c, src/win/wgnuplib.h: Move static flag for
+	unsupported encodings to struct LPGW. This ensures that errors
+	are reported only once.
+
+2011-04-06  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graph3d.c src/graphics.c src/term_api.h:  Add layering flags
+	for BEGIN/END KEYSAMPLE.
+
+	* term/js/gnuplot_svg.js term/svg.trm: Elementary mousing support for
+	the svg terminal based on Patches #2477391 #2478169 (yeah, those are
+	from 2 years ago).  Toggle plot on/off in response to mouse click on
+	the corresponding key entry.
+
+	* demo/html/Makefile.svg demo/html/index.svg demo/html/webify_svg.pl:
+	Revise the svg demo set to use mousing.
+
+	* src/graphics.c (do_plot) src/term_api.h (TERM_LAYER_RESET_PLOTNO)
+	term/svg.trm term/canvas.trm: The "set key opaque" option was causing
+	mismatched begin/end plot pairs in output from the svg and canvas
+	terminals (begin/begin/end).  Revise this so that the plot and the key
+	sample numbering is out of sync.
+
+2011-04-05  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/color.c (ifilled_quadrangle): See note in the code.  For some
+	reason this fixes rendering of pm3d surfaces in the svg terminal.
+
+2011-04-04  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/canvas.trm demo/html/mousebox.template term/js/gnuplot_mouse.js:
+	Incorporate the plot name (from 'set term canvas name "foo") into the
+	flag used by the toggleVisibility() routine so that plots in other
+	canvas elements on the same page are not affected.
+
+2011-04-03  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c src/term.h term/Makefile.am.in term/lua.trm
+	term/write_png_image.c:  Move the routine write_png_image() out of
+	lua.trm so that it can be shared by other terminal drivers.
+	It requires support from either libgd or cairo, and provides bitmapped
+	image support to the lua terminals and (in prospect) to the HTML5
+	canvas terminal.
+
+	* src/save.c: Echo most recent range of autoscaled axes on "show" but
+	not "save".  This simplifies the output of gpsavediff in most cases.
+
+	* gnuplot-cvs/term/js/gnuplot_mouse.js term/js/gnuplot_common.js
+	gnuplot-cvs/term/canvas.trm (CANVAS_image):
+	Implement support for image handling in the canvas terminal using the
+	HTML5 canvas primitive drawImage().  Image data is written to a png file
+	in parallel to generation of the main plot.  The png image can then be
+	loaded from the javascript handler for the plot it belongs to.
+
+	* demo/html/Makefile demo/html/Makefile.canvas demo/html/index.canvas
+	demo/html/mousebox.template: Update the demo collection to show the new
+	image handling.
+
+
+2011-04-01  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/canvas.trm demo/html/webify_canvas.pl:
+	Add HTML5-conformant doctype and meta-information to output html.
+
+	* src/graph3d.c:
+	Wrap pm3d surfaces and hidden3d ensembles in BEFORE_PLOT/AFTER_PLOT
+	flags via term->layer(). This allows them to be toggled on/off like
+	other plots in HTML canvas output.
+
+	* src/term.c(null_layer) src/graphics.c src/graph3d.c:
+	Provide a null_layer() routine for all terminals that do not provide
+	term->layer().  This allows us to remove explicit checks for support by
+	the current terminal.
+
+2011-03-30  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* demo/html/index.canvas demo/html/Makefile.canvas 
+	demo/html/mousebox.template demo/html/webify_canvas.pl:
+	Separate make targets for 2D and 3D plots. Add buttons for toggling
+	individual plots. Default to mousing enabled for all demo plots.
+
+	* term/canvas.trm:
+	Wrap each component plot in a test for (gnuplot.hide_plot_N).
+	Add plot-toggling buttons to the standalone mousebox.
+	Report gnuplot version in each plot generated.
+
+	* term/gnuplot_common.js term/gnuplot_mouse.css term/js/canvas_help.html
+	term/gnuplot_mouse.js (popup_help(URL) toggle_plot(N)):
+	Add version number to shared javascript code modules.
+	Add support for linking help button to plot-specific URL.
+	Add support for toggling individual component plots on/off.
+
+2011-03-30  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* term/gd.trm: Don't try to reuse names of gd font pointers for
+	local variables. Fixes build with MinGW and DLL version of libgd.
+
+	* config/mingw/Makefile: Optionally, use pre-built DLL version
+	of libgd. Use environment variable PROGRAMFILES to access help
+	compilers.
+
+2011-03-29  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wgnuplib.rc, src/win/wgnuplot.rc, src/win/wresourc.h:
+	Use standard dialog font. Remove obsolete DS_3DLOOK.
+
+	* src/win/winmain.c (WinMain): Sync About Dialog box with
+	output of "show version".
+
+	* src/win/wmenu.c (SendMacro), src/win/wgnuplot.mnu: Add
+	About dialog to Help menu.
+
+	* src/win/wmenu.c (SendMacro), src/win/wgnuplot.mnu: Add
+	Options menu to toolbar.
+
+2011-03-28  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c (get_data):  Fix array bounds underflow if every
+	point in a data file is invalid.
+	Bug #3254653
+
+2011-03-28  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wtext.c: Always update complete lines of text instead
+	of drawing single characters, since character boxes might
+	overlap when using ClearType.
+
+	* docs/README: Document recent changes to Windows help.
+
+	* src/win/wgnuplib.h, src/win/wcommonh.h, src/win/wtext.c:
+	Continue to make more stuff module-local.
+
+	* src/win/wgnuplib.h, src/win/wmenu.c: Move definition of
+	SHELL_DIR_DIALOG.
+
+	* config/config.nt: Sync with config.h created by autoconf.
+
+2011-03-26  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* term/gd.trm (PNG_put_text ENHGD_FLUSH gd_iconv):  Invoke the
+	SJIS/UTF8 conversion for both enhanced and non-enhanced text.
+	EAM - and collapse the shared code into a subroutine.
+
+2011-03-26  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* config/mingw/Makefile: Add missing paths to wxt/cairo/pango
+	files. Update build instructions.  WX_LOCATION is no longer
+	required since gnuplot has its own manifest file now and the one
+	supplied by wxWidgets is no longer included. htmlhelp.lib is
+	included in LDLIBS not TERMFLAGS. Replace '=' by ':=' for shell
+	commands. Filter out drive specifications "c:" in results from
+	pkg-config which would confuse make.
+
+2011-03-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/pm3d.c docs/gnuplot.doc:  Allow pm3d plots to use the fourth
+	column of data as "rgb variable" rather than "palette z".
+
+2011-03-25  Hans-Bernhard Broeker  <broeker@physik.rwth-aachen.de>
+
+	* src/win/wtext.c: Make more stuff module-local.  Resolve several
+	signedness conflicts introduced by functions in new screenbuf.c
+	module.
+
+2011-03-25  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/plot.c (main), src/win/winmain.c (WinMain, WinExit),
+	src/win/wcommon.h: The code which changes the codepages for
+	console gnuplot is only compiled in if CONSOLE_SWITCH_CP is
+	defined.  Otherwise gnuplot will only display a warning if
+	codepages differ.  Handle the case when codepages already match.
+
+2011-03-24  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/Makefile.maint: Fill in the "last modified" date from the most
+	recent entry in the ChangeLog rather than the using the current date,
+	and only then if the VERSION or PATCHLEVEL has been changed.
+	Caution: tested only under linux with gnu make.
+
+2011-03-22  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/graphics.c (do_plot, plot_points): Test wether the terminal
+	actually supports set_color. Fixes crashes with terminal dumb.
+
+2011-03-21  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wgraph.c (WIN_image): Fix regression: rotation of images
+	with reversed axis was not working since rev. 1.92.
+
+2011-03-20  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/util.c (equals): Test here for token index in range, rather than
+	trusting all callers to get it right.
+
+	* src/command.c src/parse.c: Token index range test is now redundant.
+
+	* docs/gnuplot.doc: Document that ^D from an empty line acts as EOF.
+
+2011-03-20  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wgnuplib.c|h, src/win/wgraph.c, src/win/winmain.c,
+	src/win/wmenu.c, src/win/wpause.c, src/win/wtext.c: FAR pointers are
+	no longer required.
+
+	* src/win/winmain.c (WinExit): Explicitly close help window on exit.
+	Fixes hangs of gnuplot when it is closed via the Windows taskbar
+	and help window	and graph window open.
+
+	* src/win/wmenu.c (LoadMacros), src/win/wgnuplot.mnu ([Button]): Add
+	icons to the text-window toolbar.
+
+	* docs/windows/doc2html.c (process_line): Don't include '=' items in
+	index. This avoids duplicate entries which caused wgnuplot to stall 
+	when an e.g. 'set term png; help "png"' was issued.
+
 2011-03-18  Bastian Maerkisch  <bmaerkisch@web.de>
 
 	* src/win/wtext.c (TextCopyClip): Fix copying of last line of a
@@ -10,9 +642,9 @@
 	* term/gd.trm (PNG_init): On Windows, set GDFONTPATH to %windir%\Fonts
 	if not set previously.
 
-	* src/plot.c (main), src/win/winmain.c (WinMain, WinExt): Always use 
-	the ANSI codepage (instead of OEM) to ensure sure that the console 
-	of gnuplot.exe and the graph window use the same codepage. Warn 
+	* src/plot.c (main), src/win/winmain.c (WinMain, WinExt): Always use
+	the ANSI codepage (instead of OEM) to ensure sure that the console
+	of gnuplot.exe and the graph window use the same codepage. Warn
 	users that raster fonts won't display all characters correctly and
 	restore the codepage on exit.
 
@@ -23,14 +655,14 @@
 
 2011-03-16  Bastian Maerkisch  <bmaerkisch@web.de>
 
-	* src/win/wgraph.c (UnicodeText): new function to convert a string 
+	* src/win/wgraph.c (UnicodeText): new function to convert a string
 	to UTF-16
 
-	* src/win/wgraph.c (drawgraph, GraphGetTextLength) NEWS: support 
+	* src/win/wgraph.c (drawgraph, GraphGetTextLength) NEWS: support
 	"set encoding" for all currently defined encodings
 
 	* src/win/wtext.c (ReadTextIni): select default font according to
-	the Windows version. Avoid font "Terminal" since it might not 
+	the Windows version. Avoid font "Terminal" since it might not
 	contain all glyphs of the current character set.
 
 	* src/win/wgnuplib.h, src/win/wgraph.c, term/win.trm: use child
@@ -57,14 +689,14 @@
 
 	* src/win/wgnuplot.rc, src/win/wgnuplot.exe.manifest: add new
 	manifest for wgnuplot to enable visual styles
-	
+
 	* src/win/wmenu.c, src/win/wtext.c: remove unused variables to
 	make compiler happy, avoid C++ style comments
-	
+
 	* src/win/wtext.c (TextInit), src/win/wmenu.c, src/win/wgnuplib.h,
 	src/win/wresourc.h: add a statusbar to the text window,
 	reduce size of text area accordingly
-	
+
 	* src/win/wtext.c (WndParentProc): [WM_GETMINMAXINFO] use active
 	font to calculate minimum window size; take menu, toolbar and
 	statusbar into account
@@ -107,9 +739,9 @@
 	* src/makefile.nt: implement suggestions by Shigeharu Takeno:
 	Do not use "+=" to be compatible with Visual C++ 2005; add/update
 	links wo libgd and wxWidgets; add a scheme to easily select options
-	[GDLIB, PDFLIB, WXT]; use linker option files for compilation of 
+	[GDLIB, PDFLIB, WXT]; use linker option files for compilation of
 	wgnuplot.exe and gnuplot.exe
-	
+
 2011-03-11  Ethan A Merritt  <merritt@u.washington.edu>
 
 	* configure.in: Check for iconv library and iconv.h, since gd uses iconv
@@ -137,15 +769,15 @@
 
 	* src/command.c (test_palette): tmpfile() always fails on a modern
 	Windows. Open a file in the user's temp directory instead.
-	
+
 	* src/win/winmain.c (WinExit): add missing void parameter
 
 	* src/win/wgraph.c (drawgraph): add missing init
-	
+
 2011-03-09  Bastian Maerkisch  <bmaerkisch@web.de>
 
-	* config/makefile.nt: add chm help (update of SF patch 3191892 by 
-	Shigeharu Takeno), (HCWPATH, HHWPATH) use PROGRAMFILES variable 
+	* config/makefile.nt: add chm help (update of SF patch 3191892 by
+	Shigeharu Takeno), (HCWPATH, HHWPATH) use PROGRAMFILES variable
 	instead of hard coded path
 
 2011-03-08  Hans-Bernhard Broeker  <broeker@physik.rwth-aachen.de>
@@ -193,7 +825,7 @@
 
 	* config/watcom/.cvsignore: Set up list of files to be ignored.
 
-  	* config/watcom/Makefile (clean): Remove GIF help files.
+	* config/watcom/Makefile (clean): Remove GIF help files.
 
 	* config/watcom/Makefile (wgnuplot_pipes.exe, gnuplot.exe): Add
 	missing library msimg32.
@@ -231,17 +863,17 @@
 
 	* docs/xref.c (refs): Only emit start and stop strings if we
 	write any items at all.
-	
+
 	Request by Mojca Miklavec
 	* docs/windows/doc2html.c: Include list of subtopics. Optionally
 	use hard links instead of index lookup (HTML_HARDLINKS).
-	
+
 	Feature Request #874572
-	* term/win.trm src/win/wgraph.c src/win/wgnuplib.h 
-	src/win/wresourc.h: Add double buffering to the windows terminal 
+	* term/win.trm src/win/wgraph.c src/win/wgnuplib.h
+	src/win/wresourc.h: Add double buffering to the windows terminal
 	to avoid flicker on redraw. Add a poor man's version of antialiasing:
 	draw on a bitmap twice the size of the window on screen, then
-	scale down using halftone mode. Both settings are optional and can 
+	scale down using halftone mode. Both settings are optional and can
 	be changed via the `graph-menu` and `wgnuplot.ini`.
 
 2011-02-26  Ethan A Merritt  <merritt@u.washington.edu>
@@ -568,10 +1200,10 @@
 
 	* src/eval.c src/internal.c src/internal.h: 
 	New time() function to get the current system time
-	
+
 	* docs/gnuplot.doc demo/timedat.dem:
 	Documentation and demo for time()
-	
+
 2010-12-29  Daniel Sebald  <daniel.sebald@ieee.org>
 
 	* src/specfun.c (ranf):  Place more restrictions on seed values
@@ -724,9 +1356,9 @@
 2010-11-18  Ethan A Merritt  <merritt@u.washington.edu>
 
 	* src/axis.c src/axis.h src/command.c src/eval.c src/graphics.c
- 	src/misc.c src/mouse.c src/plot2d.c src/save.c src/set.c src/setshow.h
+	src/misc.c src/mouse.c src/plot2d.c src/save.c src/set.c src/setshow.h
 	src/show.c src/tables.c src/tables.h src/unset.c
- 	demo/polar.dem demo/poldat.dem docs/gnuplot.doc:
+	demo/polar.dem demo/poldat.dem docs/gnuplot.doc:
 
 	Improved support for polar coordinate mode. 
 	The polar axis gets syntax and properties equivalent to the x/y/z axes.
@@ -754,7 +1386,7 @@
 	clip_line() at the time that needed the variant test, but if so they no
 	longer exist.  There is now only one other caller of clip_line().
 	Restore the test to the version that is correct for draw_clip_line().
-	
+
 	* src/graphics.c (place_grid xtick2d_callback plot_impulses)
 	src/term.c (do_arrow): Simplify these routines to use draw_clip_line().
 
@@ -802,7 +1434,7 @@
 	* src/datafile.c (df_readascii): The "labels" style did not work with 
 	pseudocolumns (e.g. "using 1:2:0"). Now it correctly handles pseudocolumns 
 	0, -1, -2.
-	
+
 	* term/cairo.trm: Documentation fix: the section on the default size 
 	for the pngcairo terminal was incorrect.
 
@@ -906,8 +1538,8 @@
 
 2010-10-11  James R. Van Zandt  <jrvz@comcast.net>
 
-        * src/specfun.c src/specfun.h src/eval.c docs/gnuplot.doc:  Adding
-        support for the exponential integral E_n(x) as gnuplot function expint(n,x).
+	* src/specfun.c src/specfun.h src/eval.c docs/gnuplot.doc:  Adding
+	support for the exponential integral E_n(x) as gnuplot function expint(n,x).
 
 2010-10-10  Tatsuro Matsuoka  <tmacchant3@yahoo.co.jp>
 
@@ -1416,7 +2048,7 @@
 	src/internal.c src/time.c:
 
 	Track time coordinates to sub-second precision.
-	
+
 	Time data read using the %S format specifier in "set timefmt" is now
 	treated as a floating point number rather than an integer. This affects
 	data read from an input file ("set xdata time"), the axis range and tic
@@ -1533,14 +2165,14 @@
 
 	* src/misc.c (need_fill_border): The fillstyle border color was not
 	taking account of linetype redefinitions.
-	
+
 2010-05-30  Ethan A Merritt  <merritt@u.washington.edu>
-	
+
 	* docs/gnuplot.doc:  Document recently added %s time format
 	(seconds since start of 2000).
 
 2010-05-24  Ethan A Merritt  <merritt@u.washington.edu>
-	
+
 	* src/graph3d.c (do_3dplot):  Remove a restriction that limited depth-
 	sorting of pm3d surfaces to those which were adjacent in the splot
 	command.  If there was a reason for the original restriction, that 
@@ -1758,7 +2390,7 @@
 
 2010-03-13  Ethan A Merritt  <merritt@u.washington.edu
 
- 	* config/makefile.286 config/makefile.msc config/makefile.msw
+	* config/makefile.286 config/makefile.msc config/makefile.msw
 	config/makefile.tc config/makefile.wc config/makefile.unx
 	src/Makefile.am src/alloc.c src/alloc.h src/eval.c src/gnuplot.def
 	src/graph3d.c src/help.c src/hidden3d.h src/misc.c src/plot.c
@@ -1940,14 +2572,14 @@
 	* src/win/wgraph.c src/win/wresourc.h: Add the possibility to
 	save the current graph window as EMF file. Add a Ctrl+S shortcut for
 	the graph window and add an entry to the window's system menu.
-	
+
 	* term/win.trm: Update documentation accordingly.
 
 2010-02-15  Benjamin Lindner  <lindnerb@users.sourceforge.net>
 
 	* src/win/wgraph.c: Update code to copy to clipboard as enhanced
 	metafile, add Ctrl+C shortcut for graph window.
-	
+
 	* term/win.trm: Update documentation accordingly.
 
 2010-02-15  Ethan A Merritt  <merritt@u.washington.edu>
@@ -2173,7 +2805,7 @@
 	New command:
 		set linetype N {various line properties}
 		set linetype cycle M
-	
+
 	The new line colors and widths can be set to cycle after going through
 	M linetypes.  E.g. for M=8, the color of linetypes 9, 17, 25 ... are the
 	same as that of linetype 1.
@@ -2416,7 +3048,7 @@
 	* src/command.c, src/command.h (do_string, do_string_and_free):
 	Use to different functions depending on whether the command string has
 	to be freed.  Don't reset screen_ok.
-	
+
 	* src/command.c, src/command.h (do_string_replot), src/fit.c
 	(fit_interrupt): Use do_string() instead of do_line().
 
