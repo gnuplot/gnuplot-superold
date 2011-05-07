@@ -1,3 +1,61 @@
+2011-05-07  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/standard.c (fn_asin, fn_asinh): Fix calculation for complex
+	arguments. Make sure that asin(sin(z))==z.
+	Bug #2879772.
+	
+2011-04-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/mouse.c (apply_zoom):  Prevent double-free of custom font for tic
+	labels.
+	Bug #3294915
+
+2011-04-27  <wtf3@users.sourceforge.net>
+
+	* src/graphics.c:  The autotitle option for column-stacked histograms
+	should honor "set key maxrows N".
+	Bug #3281635
+
+2011-04-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot.c (main) src/misc.c (load_file): Initializing c_token to an
+	illegal value is not a good idea.
+	Bug #3292512
+
+2011-04-20  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gplt_x11.c:  Most of the messages passed via the title bar
+	of the X Display window are controlled by #ifdef TITLE_BAR_DRAWING_MSG.
+	Do the same for the "allocating colors..." message.
+
+2011-04-19  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (f_columnhead df_set_key_title) src/datafile.h
+	src/eval.c src/plot2d.c (eval_plots) docs/gnuplot.doc:
+
+	New function columnhead(N) that returns a string containing column N
+	from the first line of a data set. 'plot ... title columnhead(i)'
+	was previously implemented as a keyword; making it a function instead
+	allows, for example, 
+	'plot for [i=3:6] ... title "Results of ".columnhead(i)'
+
+2011-03-28  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c (get_data):  Fix array bounds underflow if every
+	point in a data file is invalid.
+	Bug #3254653
+
+2011-03-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/pm3d.c docs/gnuplot.doc:  Allow pm3d plots to use the fourth
+	column of data as "rgb variable" rather than "palette z".
+
+2011-03-21  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/svg.trm: Demarcate plot elements using the svg <title> and
+	<g id=foo> elements rather than <a xlink:foo>
+	Bug #3205257
+
 2011-03-17  Ethan A Merritt  <merritt@u.washington.edu>
 
 	* axis.c(gen_tics): Make sure the axis tic label format string is
