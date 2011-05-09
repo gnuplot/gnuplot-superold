@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graphics.c,v 1.358 2011/03/15 04:57:13 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graphics.c,v 1.366 2011/05/09 21:45:14 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graphics.c */
@@ -1241,6 +1241,12 @@ boundary(struct curve_points *plots, int count)
     /* Set default clipping to the plot boundary */
     clip_area = &plot_bounds;
 
+    /* Sanity check. FIXME:  Stricter test? Fatal error? */
+    if (plot_bounds.xright < plot_bounds.xleft
+    ||  plot_bounds.ytop   < plot_bounds.ybot)
+	int_warn(NO_CARET, "Terminal canvas area too small to hold plot."
+			"\n\t    Check plot boundary and font sizes.");
+
 }
 
 /*}}} */
@@ -1607,8 +1613,7 @@ do_plot(struct curve_points *plots, int pcount)
     screen_ok = FALSE;
 
     /* Sync point for epslatex text positioning */
-    if (term->layer)
-	(term->layer)(TERM_LAYER_BACKTEXT);
+    (term->layer)(TERM_LAYER_BACKTEXT);
 
     /* DRAW TICS AND GRID */
     if (grid_layer == 0 || grid_layer == -1)
@@ -1792,13 +1797,15 @@ do_plot(struct curve_points *plots, int pcount)
     place_arrows( 0 );
 
     /* Sync point for epslatex text positioning */
-    if (term->layer)
-	(term->layer)(TERM_LAYER_FRONTTEXT);
+    (term->layer)(TERM_LAYER_FRONTTEXT);
 
     /* Draw the key, or at least reserve space for it (pass 1) */
     if (lkey)
 	do_key_layout( key, key_pass, &xl, &yl );
     SECOND_KEY_PASS:
+	/* This tells the canvas and svg terminals to restart the plot count */
+	/* so that the key titles are in sync with the plots they describe.  */
+	(*t->layer)(TERM_LAYER_RESET_PLOTNO);
 
     /* DRAW CURVES */
     this_plot = plots;
@@ -1807,8 +1814,7 @@ do_plot(struct curve_points *plots, int pcount)
 	TBOOLEAN localkey = lkey;	/* a local copy */
 
 	/* Sync point for start of new curve (used by svg, post, ...) */
-	if (term->layer)
-	    (term->layer)(TERM_LAYER_BEFORE_PLOT);
+	(term->layer)(TERM_LAYER_BEFORE_PLOT);
 
 	/* set scaling for this plot's axes */
 	x_axis = this_plot->x_axis;
@@ -1840,8 +1846,8 @@ do_plot(struct curve_points *plots, int pcount)
 	    localkey = 0;
 	    if (this_plot->labels && (key_pass || !key->front)) {
 		struct lp_style_type save_lp = this_plot->lp_properties;
-		for (key_entry = this_plot->labels->next; key_entry; key_entry = key_entry->next) {
-		    key_count++;
+		for (key_entry = this_plot->labels->next; key_entry;
+		     key_entry = key_entry->next) {
 		    this_plot->lp_properties.l_type = key_entry->tag;
 		    this_plot->fill_properties.fillpattern = key_entry->tag;
 		    if (key_entry->text) {
@@ -1851,7 +1857,12 @@ do_plot(struct curve_points *plots, int pcount)
 			    load_linetype(&this_plot->lp_properties, key_entry->tag + 1);
 			do_key_sample(this_plot, key, key_entry->text, t, xl, yl);
 		    }
-		    yl = yl - key_entry_height;
+		    if (++key_count >= key_rows) {
+			yl = yl_ref;
+			xl += key_col_wth;
+			key_count = 0;
+		    } else
+			yl = yl - key_entry_height;
 		}
 		free_labels(this_plot->labels);
 		this_plot->labels = NULL;
@@ -1892,6 +1903,7 @@ do_plot(struct curve_points *plots, int pcount)
 		plot_lines(this_plot);
 		break;
 	    case STEPS:
+	    case FILLSTEPS:
 		plot_steps(this_plot);
 		break;
 	    case FSTEPS:
@@ -2016,15 +2028,15 @@ do_plot(struct curve_points *plots, int pcount)
 	}
 
 
-	if (localkey && this_plot->title && !this_plot->title_is_suppressed) {
-	    /* If there are two passes, defer point sample till the second */
-	    if (key->front && !key_pass)
-		continue; /* Do nothing during first pass */
-
+	/* If there are two passes, defer key sample till the second */
+	if (key->front && !key_pass)
+	    ;
+	else if (localkey && this_plot->title && !this_plot->title_is_suppressed) {
 	    /* we deferred point sample until now */
 	    if (this_plot->plot_style == LINESPOINTS
 	         &&  this_plot->lp_properties.p_interval < 0) {
-		(*t->set_color)(&background_fill);
+		if (t->set_color)
+		    (*t->set_color)(&background_fill);
 		(*t->pointsize)(pointsize * pointintervalbox);
 		(*t->point)(xl + key_point_offset, yl, 6);
 		term_apply_lp_properties(&this_plot->lp_properties);
@@ -2040,8 +2052,10 @@ do_plot(struct curve_points *plots, int pcount)
 	    } else if (this_plot->plot_style & PLOT_STYLE_HAS_POINT) {
 		if (this_plot->lp_properties.p_size == PTSZ_VARIABLE)
 		    (*t->pointsize)(pointsize);
+		(t->layer)(TERM_LAYER_BEGIN_KEYSAMPLE);
 		if (on_page(xl + key_point_offset, yl))
 		    (*t->point) (xl + key_point_offset, yl, this_plot->lp_properties.p_type);
+		(t->layer)(TERM_LAYER_END_KEYSAMPLE);
 	    }
 
 	    if (key->invert)
@@ -2055,8 +2069,7 @@ do_plot(struct curve_points *plots, int pcount)
 	}
 
 	/* Sync point for end of this curve (used by svg, post, ...) */
-	if (term->layer)
-	    (term->layer)(TERM_LAYER_AFTER_PLOT);
+	(term->layer)(TERM_LAYER_AFTER_PLOT);
 
     }
 
@@ -2822,69 +2835,100 @@ struct curve_points *plot)
 
 /* XXX - JG  */
 /* plot_steps:
- * Plot the curves in STEPS style
+ * Plot the curves in STEPS or FILLSTEPS style
  */
 static void
 plot_steps(struct curve_points *plot)
 {
     int i;			/* point index */
-    int x, y;			/* point in terminal coordinates */
+    int x=0, y=0;		/* point in terminal coordinates */
     struct termentry *t = term;
     enum coord_type prev = UNDEFINED;	/* type of previous point */
     double ex, ey;		/* an edge point */
     double lx[2], ly[2];	/* two edge points */
-    int yprev = 0;		/* previous point coordinates */
+    int xprev, yprev;		/* previous point coordinates */
+    int y0;			/* baseline */
+    int style = 0;
+
+    /* EAM April 2011:  Default to lines only, but allow filled boxes */
+    if ((plot->plot_style & PLOT_STYLE_HAS_FILL) && t->fillbox) {
+	style = style_from_fill(&plot->fill_properties);
+	ey = 0;
+	cliptorange(ey, Y_AXIS.min, Y_AXIS.max);
+	y0 = map_y(ey);
+    }
 
     for (i = 0; i < plot->p_count; i++) {
+	xprev = x; yprev = y;
+
 	switch (plot->points[i].type) {
-	case INRANGE:{
+	case INRANGE:
 		x = map_x(plot->points[i].x);
 		y = map_y(plot->points[i].y);
 
 		if (prev == INRANGE) {
-		    (*t->vector) (x, yprev);
-		    (*t->vector) (x, y);
-		} else if (prev == OUTRANGE) {
-		    /* from outrange to inrange */
-		    if (!clip_lines1) {
-			(*t->move) (x, y);
-		    } else {	/* find edge intersection */
-			edge_intersect_steps(plot->points, i, &ex, &ey);
-			(*t->move) (map_x(ex), map_y(ey));
-			(*t->vector) (x, map_y(ey));
+		    if (style) {
+			(*t->fillbox)(style, xprev,y0,(x-xprev),yprev-y0);
+		    } else {
+			(*t->vector) (x, yprev);
 			(*t->vector) (x, y);
 		    }
-		} else {	/* prev == UNDEFINED */
-		    (*t->move) (x, y);
-		    (*t->vector) (x, y);
-		}
-		yprev = y;
+		} else if (prev == OUTRANGE) {
+		    /* from outrange to inrange */
+		    if (clip_lines1) {	/* find edge intersection */
+			edge_intersect_steps(plot->points, i, &ex, &ey);
+			xprev = map_x(ex);
+			yprev = map_y(ey);
+			if (style) {
+			    (*t->fillbox)(style, xprev,y0,(x-xprev),yprev-y0);
+			} else {
+			    (*t->move) (xprev,yprev);
+			    (*t->vector) (x, yprev);
+			    (*t->vector) (x, y);
+			}
+		    }
+		} /* remaining case (prev == UNDEFINED) do nothing */
+
+		(*t->move)(x, y);
 		break;
-	    }
-	case OUTRANGE:{
+
+	case OUTRANGE:
 		if (prev == INRANGE) {
 		    /* from inrange to outrange */
 		    if (clip_lines1) {
 			edge_intersect_steps(plot->points, i, &ex, &ey);
-			(*t->vector) (map_x(ex), yprev);
-			(*t->vector) (map_x(ex), map_y(ey));
+			x = map_x(ex); y = map_y(ey);
+			if (style) {
+			    (*t->fillbox)(style, xprev,y0,(x-xprev),yprev-y0);
+			} else {
+			    (*t->vector) (x, yprev);
+			    (*t->vector) (x, y);
+			}
 		    }
 		} else if (prev == OUTRANGE) {
 		    /* from outrange to outrange */
 		    if (clip_lines2) {
 			if (two_edge_intersect_steps(plot->points, i, lx, ly)) {
-			    (*t->move) (map_x(lx[0]), map_y(ly[0]));
-			    (*t->vector) (map_x(lx[1]), map_y(ly[0]));
-			    (*t->vector) (map_x(lx[1]), map_y(ly[1]));
+			    xprev = map_x(lx[0]);
+			    yprev = map_y(ly[0]);
+			    x = map_x(lx[1]);
+			    y = map_y(ly[1]);
+			    if (style) {
+				(*t->fillbox)(style, xprev,y0,(x-xprev),yprev-y0);
+			    } else {
+				(*t->move) (xprev, yprev);
+				(*t->vector) (x, yprev);
+				(*t->vector) (x, y);
+			    }
 			}
 		    }
 		}
+		(*t->move)(x, y);
 		break;
-	    }
+
 	default:		/* just a safety */
-	case UNDEFINED:{
+	case UNDEFINED:
 		break;
-	    }
 	}
 	prev = plot->points[i].type;
     }
@@ -2898,16 +2942,18 @@ static void
 plot_fsteps(struct curve_points *plot)
 {
     int i;			/* point index */
-    int x, y;			/* point in terminal coordinates */
+    int x=0, y=0;		/* point in terminal coordinates */
     struct termentry *t = term;
     enum coord_type prev = UNDEFINED;	/* type of previous point */
     double ex, ey;		/* an edge point */
     double lx[2], ly[2];	/* two edge points */
-    int xprev = 0;		/* previous point coordinates */
+    int xprev, yprev;		/* previous point coordinates */
 
     for (i = 0; i < plot->p_count; i++) {
+	xprev = x; yprev = y;
+
 	switch (plot->points[i].type) {
-	case INRANGE:{
+	case INRANGE:
 		x = map_x(plot->points[i].x);
 		y = map_y(plot->points[i].y);
 
@@ -2916,45 +2962,48 @@ plot_fsteps(struct curve_points *plot)
 		    (*t->vector) (x, y);
 		} else if (prev == OUTRANGE) {
 		    /* from outrange to inrange */
-		    if (!clip_lines1) {
-			(*t->move) (x, y);
-		    } else {	/* find edge intersection */
+		    if (clip_lines1) {	/* find edge intersection */
 			edge_intersect_fsteps(plot->points, i, &ex, &ey);
-			(*t->move) (map_x(ex), map_y(ey));
-			(*t->vector) (map_x(ex), y);
+			xprev = map_x(ex);
+			yprev = map_y(ey);
+			(*t->move) (xprev, yprev);
+			(*t->vector) (xprev, y);
 			(*t->vector) (x, y);
 		    }
-		} else {	/* prev == UNDEFINED */
-		    (*t->move) (x, y);
-		    (*t->vector) (x, y);
-		}
-		xprev = x;
+		} /* remaining case (prev == UNDEFINED) do nothing */
+
+		(*t->move)(x, y);
 		break;
-	    }
-	case OUTRANGE:{
+
+	case OUTRANGE:
 		if (prev == INRANGE) {
 		    /* from inrange to outrange */
 		    if (clip_lines1) {
 			edge_intersect_fsteps(plot->points, i, &ex, &ey);
-			(*t->vector) (xprev, map_y(ey));
-			(*t->vector) (map_x(ex), map_y(ey));
+			x = map_x(ex);  y = map_y(ey);
+			(*t->vector) (xprev, y);
+			(*t->vector) (x, y);
 		    }
 		} else if (prev == OUTRANGE) {
 		    /* from outrange to outrange */
 		    if (clip_lines2) {
 			if (two_edge_intersect_fsteps(plot->points, i, lx, ly)) {
-			    (*t->move) (map_x(lx[0]), map_y(ly[0]));
-			    (*t->vector) (map_x(lx[0]), map_y(ly[1]));
-			    (*t->vector) (map_x(lx[1]), map_y(ly[1]));
+			    xprev = map_x(lx[0]);
+			    yprev = map_y(ly[0]);
+			    x = map_x(lx[1]);
+			    y = map_y(ly[1]);
+			    (*t->move) (xprev, yprev);
+			    (*t->vector) (xprev, y);
+			    (*t->vector) (x, y);
 			}
 		    }
 		}
+		(*t->move)(x, y);
 		break;
-	    }
+
 	default:		/* just a safety */
-	case UNDEFINED:{
+	case UNDEFINED:
 		break;
-	    }
 	}
 	prev = plot->points[i].type;
     }
@@ -3058,8 +3107,6 @@ plot_histeps(struct curve_points *plot)
  * Draw vertical line for the histeps routine.
  * Performs clipping.
  */
-/* HBB 20010214: renamed parameters. xl vs. x1 is just _too_ easy to
- * mis-read */
 static void
 histeps_vertical(
     int *cur_x, int *cur_y,	/* keeps track of "cursor" position */
@@ -3069,55 +3116,15 @@ histeps_vertical(
     struct termentry *t = term;
     int xm, y1m, y2m;
 
-    /* FIXME HBB 20010215: wouldn't it be simpler to call
-     * draw_clip_line() instead? And in histeps_horizontal(), too, of
-     * course? */
-
-    /* HBB 20010215: reversed axes need special treatment, here: */
-    if (X_AXIS.min <= X_AXIS.max) {
-	if ((x < X_AXIS.min) || (x > X_AXIS.max))
-	    return;
-    } else {
-	if ((x < X_AXIS.max) || (x > X_AXIS.min))
-	    return;
-    }
-
-    if (Y_AXIS.min <= Y_AXIS.max) {
-	if ((y1 < Y_AXIS.min && y2 < Y_AXIS.min)
-	    || (y1 > Y_AXIS.max && y2 > Y_AXIS.max))
-	    return;
-	if (y1 < Y_AXIS.min)
-	    y1 = Y_AXIS.min;
-	if (y1 > Y_AXIS.max)
-	    y1 = Y_AXIS.max;
-	if (y2 < Y_AXIS.min)
-	    y2 = Y_AXIS.min;
-	if (y2 > Y_AXIS.max)
-	    y2 = Y_AXIS.max;
-    } else {
-	if ((y1 < Y_AXIS.max && y2 < Y_AXIS.max)
-	    || (y1 > Y_AXIS.min && y2 > Y_AXIS.min))
-	    return;
-
-	if (y1 < Y_AXIS.max)
-	    y1 = Y_AXIS.max;
-	if (y1 > Y_AXIS.min)
-	    y1 = Y_AXIS.min;
-	if (y2 < Y_AXIS.max)
-	    y2 = Y_AXIS.max;
-	if (y2 > Y_AXIS.min)
-	    y2 = Y_AXIS.min;
-    }
     xm = map_x(x);
     y1m = map_y(y1);
     y2m = map_y(y2);
-
-    if (y1m != *cur_y || xm != *cur_x)
-	(*t->move) (xm, y1m);
-    (*t->vector) (xm, y2m);
-    *cur_x = xm;
-    *cur_y = y2m;
-
+    if (clip_line(&xm, &y1m, &xm, &y2m)) {
+	(*t->move)(xm, y1m);
+	(*t->vector)(xm, y2m);
+	*cur_x = xm;
+	*cur_y = y2m;
+    }
     return;
 }
 
@@ -3134,53 +3141,15 @@ histeps_horizontal(
     struct termentry *t = term;
     int x1m, x2m, ym;
 
-    /* HBB 20010215: reversed axes need special treatment, here: */
-
-    if (Y_AXIS.min <= Y_AXIS.max) {
-	if ((y < Y_AXIS.min) || (y > Y_AXIS.max))
-	    return;
-    } else {
-	if ((y < Y_AXIS.max) || (y > Y_AXIS.min))
-	    return;
-    }
-
-    if (X_AXIS.min <= X_AXIS.max) {
-	if ((x1 < X_AXIS.min && x2 < X_AXIS.min)
-	    || (x1 > X_AXIS.max && x2 > X_AXIS.max))
-	    return;
-
-	if (x1 < X_AXIS.min)
-	    x1 = X_AXIS.min;
-	if (x1 > X_AXIS.max)
-	    x1 = X_AXIS.max;
-	if (x2 < X_AXIS.min)
-	    x2 = X_AXIS.min;
-	if (x2 > X_AXIS.max)
-	    x2 = X_AXIS.max;
-    } else {
-	if ((x1 < X_AXIS.max && x2 < X_AXIS.max)
-	    || (x1 > X_AXIS.min && x2 > X_AXIS.min))
-	    return;
-
-	if (x1 < X_AXIS.max)
-	    x1 = X_AXIS.max;
-	if (x1 > X_AXIS.min)
-	    x1 = X_AXIS.min;
-	if (x2 < X_AXIS.max)
-	    x2 = X_AXIS.max;
-	if (x2 > X_AXIS.min)
-	    x2 = X_AXIS.min;
-    }
-    ym = map_y(y);
     x1m = map_x(x1);
     x2m = map_x(x2);
-
-    if (x1m != *cur_x || ym != *cur_y)
-	(*t->move) (x1m, ym);
-    (*t->vector) (x2m, ym);
-    *cur_x = x2m;
-    *cur_y = ym;
-
+    ym = map_y(y);
+    if (clip_line(&x1m, &ym, &x2m, &ym)) {
+	(*t->move)(x1m, ym);
+	(*t->vector)(x2m, ym);
+	*cur_x = x2m;
+	*cur_y = ym;
+    }
     return;
 }
 
@@ -3742,7 +3711,8 @@ plot_points(struct curve_points *plot)
 		/* modification to all terminal drivers. It might be worth it.  */
 		/* term_apply_lp_properties will restore the point type and size*/
 		if (plot->plot_style == LINESPOINTS && interval < 0) {
-		    (*t->set_color)(&background_fill);
+		    if (t->set_color)
+			(*t->set_color)(&background_fill);
 		    (*t->pointsize)(pointsize * pointintervalbox);
 		    (*t->point) (x, y, 6);
 		    term_apply_lp_properties(&(plot->lp_properties));
@@ -4352,7 +4322,6 @@ filter_boxplot(struct curve_points *plot)
 static void
 plot_boxplot(struct curve_points *plot)
 {
-    int i;
     int N;
     struct coordinate *save_points = plot->points;
     struct coordinate candle;
@@ -5139,8 +5108,7 @@ xtick2d_callback(
     }
 
     if (grid.l_type > LT_NODRAW) {
-	if (t->layer)
-	    (t->layer)(TERM_LAYER_BEGIN_GRID);
+	(t->layer)(TERM_LAYER_BEGIN_GRID);
 	term_apply_lp_properties(&grid);
 	if (polar_grid_angle) {
 	    double x = place, y = 0, s = sin(0.1), c = cos(0.1);
@@ -5185,8 +5153,7 @@ xtick2d_callback(
 	    }
 	}
 	term_apply_lp_properties(&border_lp);	/* border linetype */
-	if (t->layer)
-	    (t->layer)(TERM_LAYER_END_GRID);
+	(t->layer)(TERM_LAYER_END_GRID);
     }	/* End of grid code */
 
 
@@ -5242,8 +5209,7 @@ ytick2d_callback(
     }
 
     if (grid.l_type > LT_NODRAW) {
-	if (t->layer)
-	    (t->layer)(TERM_LAYER_BEGIN_GRID);
+	(t->layer)(TERM_LAYER_BEGIN_GRID);
 	term_apply_lp_properties(&grid);
 	if (polar_grid_angle) {
 	    double x = 0, y = place, s = sin(0.1), c = cos(0.1);
@@ -5282,8 +5248,7 @@ ytick2d_callback(
 	    }
 	}
 	term_apply_lp_properties(&border_lp);	/* border linetype */
-	if (t->layer)
-	    (t->layer)(TERM_LAYER_END_GRID);
+	(t->layer)(TERM_LAYER_END_GRID);
     }
     /* we precomputed tic posn and text posn */
 
@@ -5681,6 +5646,8 @@ do_key_sample(
     else
 	clip_area = &canvas;
 
+    (*t->layer)(TERM_LAYER_BEGIN_KEYSAMPLE);
+
     if (key->textcolor.type == TC_VARIABLE)
 	/* Draw key text in same color as plot */
 	;
@@ -5791,6 +5758,8 @@ do_key_sample(
      * when drawing a point, but does not restore it. We must wait
      then draw the point sample at the end of do_plot (line 2058)
      */
+
+    (*t->layer)(TERM_LAYER_END_KEYSAMPLE);
 
     /* Restore previous clipping area */
     clip_area = clip_save;
