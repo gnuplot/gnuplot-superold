@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: misc.c,v 1.131 2011/03/11 22:20:59 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: misc.c,v 1.134 2011/06/19 22:10:37 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - misc.c */
@@ -45,6 +45,7 @@ static char *RCSid() { return RCSid("$Id: misc.c,v 1.131 2011/03/11 22:20:59 sfe
 #include "util.h"
 #include "variable.h"
 #include "axis.h"
+#include "scanner.h"		/* so that scanner() can count curly braces */
 
 #if defined(HAVE_DIRENT_H)
 # include <sys/types.h>
@@ -216,7 +217,7 @@ load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
     do_load_arg_substitution = can_do_args;
 
     if (fp == (FILE *) NULL) {
-	os_error(c_token, "Cannot open %s file '%s'",
+	os_error(NO_CARET, "Cannot open %s file '%s'",
 		 can_do_args ? "call" : "load", name);
     } else if (fp == stdin) {
 	/* DBT 10-6-98  go interactive if "-" named as load file */
@@ -268,8 +269,39 @@ load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
 			/* line continuation */
 			start = len;
 			left = gp_input_line_len - start;
-		    } else
+		    } else {
+			/* EAM May 2011 - handle multi-line bracketed clauses {...}.
+			 * Introduces a requirement for scanner.c and scanner.h
+			 * This code is redundant with part of do_line(),
+			 * but do_line() assumes continuation lines come from stdin.
+			 */
+#ifdef GP_MACROS
+			/* macros in a clause are problematic, as they are */
+			/* only expanded once even if the clause is replayed */
+			string_expand_macros();
+#endif
+			/* Strip off trailing comment and count curly braces */
+			num_tokens = scanner(&gp_input_line, &gp_input_line_len);
+			if (gp_input_line[token[num_tokens].start_index] == '#') {
+			    gp_input_line[token[num_tokens].start_index] = NUL;
+			    start = token[num_tokens].start_index;
+			    left = gp_input_line_len - start;
+			}
+			/* Read additional lines if necessary to complete a
+			 * bracketed clause {...}
+			 */
+			if (curly_brace_count < 0)
+			    int_error(NO_CARET, "Unexpected }");
+			if (curly_brace_count > 0) {
+			    strcat(gp_input_line,";");
+			    start = strlen(gp_input_line);
+			    left = gp_input_line_len - start;
+			    continue;
+			}
+			
 			more = FALSE;
+		    }
+
 		}
 	    }
 
@@ -320,6 +352,7 @@ lf_pop()
 	inline_num = lf->inline_num;
 	if_depth = lf->if_depth;
 	if_condition = lf->if_condition;
+	if_open_for_else = lf->if_open_for_else;
 
 	/* Restore saved input state and free the copy */
 	if (lf->tokens) {
@@ -373,6 +406,7 @@ lf_push(FILE *fp, char *name, char *cmdline)
     if (lf->depth > 1024)
 	int_error(NO_CARET, "Deep load/eval recursion detected");
     lf->if_depth = if_depth;
+    lf->if_open_for_else = if_open_for_else;
     lf->if_condition = if_condition;
     lf->c_token = c_token;
     lf->num_tokens = num_tokens;
@@ -1126,7 +1160,7 @@ parse_color_name()
 {
     char *string;
     int index;
-    int color = -1;
+    long color = -1;
 
     if (almost_equals(c_token,"rgb$color"))
 	c_token++;
@@ -1135,13 +1169,14 @@ parse_color_name()
 	if (color >= 0)
 	    color = pm3d_color_names_tbl[color].value;
 	else
-	    sscanf(string,"#%x",&color);
+	    sscanf(string,"#%lx",&color);
 	free(string);
     }
-    if ((color & 0xff000000) != 0)
+
+    if (color == -1)
 	int_error(c_token, "not recognized as a color name or a string of form \"#RRGGBB\"");
 
-    return color;
+    return (unsigned int)(color);
 }
 
 /* arrow parsing...
