@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.194.2.7 2010/10/07 18:31:56 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.194.2.9 2011/08/31 16:53:03 sfeam Exp $"); }
 #endif
 
 #define X11_POLYLINE 1
@@ -3485,7 +3485,9 @@ PaletteMake(t_sm_palette * tpal)
 {
     int max_colors;
     int min_colors;
+#ifdef TITLE_BAR_DRAWING_MSG
     char *save_title = (char *) 0;
+#endif
 
     /* The information retained in a linked list is the cmap_t structure.
      * That colormap structure doesn't contain the palette specifications
@@ -3560,6 +3562,7 @@ PaletteMake(t_sm_palette * tpal)
 
 	if (current_plot) {
 
+#ifdef TITLE_BAR_DRAWING_MSG
 	    if (current_plot->window) {
 		char *msg;
 		char *added_text = " allocating colors ...";
@@ -3575,6 +3578,7 @@ PaletteMake(t_sm_palette * tpal)
 		    free(msg);
 		}
 	    }
+#endif
 
 	    if (!num_colormaps) {
 		XFree(XListInstalledColormaps(dpy, current_plot->window, &num_colormaps));
@@ -3684,6 +3688,7 @@ PaletteMake(t_sm_palette * tpal)
 
     }
 
+#ifdef TITLE_BAR_DRAWING_MSG
     if (save_title) {
 	/* Restore window title (current_plot and current_plot->window are
 	 * valid, otherwise would not have been able to get save_title.
@@ -3691,6 +3696,7 @@ PaletteMake(t_sm_palette * tpal)
 	XStoreName(dpy, current_plot->window, save_title);
 	XFree(save_title);
     }
+#endif
 
 }
 
