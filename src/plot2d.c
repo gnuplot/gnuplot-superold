@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.193.2.19 2011/03/11 05:43:03 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.193.2.22 2011/09/30 04:02:58 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -850,7 +850,8 @@ get_data(struct curve_points *current_plot)
 		store2d_point(current_plot, i, v[0], v[1], v[0], v[0], v[1],
 			      v[1], -1.0);
 		/* Allocate and fill in a text_label structure to match it */
-		store_label(current_plot->labels,
+		if (current_plot->points[i].type != UNDEFINED)
+		    store_label(current_plot->labels,
 			    &(current_plot->points[i]), i, df_tokens[2], v[3]);
 		i++;
 		break;
@@ -931,7 +932,7 @@ images:
     }                           /*while */
 
     /* This removes extra point caused by blank lines after data. */
-    if (current_plot->points[i-1].type == UNDEFINED)
+    if (i>0 && current_plot->points[i-1].type == UNDEFINED)
 	i--;
 
     current_plot->p_count = i;
@@ -1663,20 +1664,17 @@ eval_plots()
 		    }
 		    c_token++;
 
-		    if (almost_equals(c_token,"col$umnheader")) {
+		    /* This ugliness is because columnheader can be either a keyword */
+		    /* or a function name.  Yes, the design could have been better. */
+		    if (almost_equals(c_token,"col$umnheader")
+		    && !(equals(c_token,"columnhead") && equals(c_token+1,"(")) ) {
 			df_set_key_title_columnhead(this_plot->plot_type);
-		    } else 
-
-#ifdef BACKWARDS_COMPATIBLE
-		    /* Annoying backwards-compatibility hack - deprecate! */
-		    if (isanumber(c_token)) {
-			c_token--;
-			df_set_key_title_columnhead(this_plot->plot_type);
-		    } else
-#endif
-
-		    if (!(this_plot->title = try_to_get_string()))
-			int_error(c_token, "expecting \"title\" for plot");
+		    } else {
+			evaluate_inside_using = TRUE;
+			if (!(this_plot->title = try_to_get_string()))
+			    int_error(c_token, "expecting \"title\" for plot");
+			evaluate_inside_using = FALSE; 
+		    }
 		    set_title = TRUE;
 		    continue;
 		}
