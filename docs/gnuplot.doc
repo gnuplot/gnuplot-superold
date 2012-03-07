@@ -1,4 +1,4 @@
-C RCS $Id: gnuplot.doc,v 1.717 2012/01/26 22:52:39 sfeam Exp $
+C RCS $Id: gnuplot.doc,v 1.720 2012/03/07 21:04:45 sfeam Exp $
 C
 C Copyright (C) 1986 - 1993, 1998, 1999, 2000, 2001, 2004   Thomas Williams, Colin Kelley et al.
 C
@@ -234,6 +234,9 @@ Ffigure_newsyntax
  default sequence of linetypes used in plotting. See `set linetype`.
  This is normally done in an initialization file, either the system-wide
  file `gnuplotrc` or a private file `~/.gnuplot`. See `initialization`.
+
+ Most terminals now allow you to set an explicit background color for the plot.
+ The special linetype `bgnd` can be used to draw in this color. See `bgnd`.
 
 3 New plot styles
  See documentation for plot styles `boxplot`, `circles`, `ellipses`, and
@@ -2179,6 +2182,8 @@ C ... and restart the table:
  The pre-defined colors and dot/dash patterns are not guaranteed to be
  consistent for all terminal types, but all terminals use the special linetype
  -1 to mean a solid line in the primary foreground color (normally black).
+ Most terminals also recognize the special linetype "bgnd" to mean a solid line
+ in the background color.
 
  You can redefine the default linetype properties either interactively or via an
  initialization file.  This allows you to customize the colors and other
@@ -2275,6 +2280,19 @@ C ... and restart the table:
  cbrange mapping of the palette. This allows smoothly-varying color along a
  3d line or surface. It also allows coloring 2D plots by palette values read
  from an extra column of data (not all 2D plot styles allow an extra column).
+4 background color
+?background
+?bgnd
+ Most terminals now allow you to set an explicit background color for the plot.
+ The special linetype `bgnd` will draw in this color, and `bgnd` is also 
+ recognized as a color.
+ Examples:
+      # This will erase a section of the canvas by writing over it in the
+      # background color
+      set term wxt background rgb "gray75"
+      set object 1 rectangle from x0,y0 to x1,y1 fillstyle solid fillcolor bgnd
+      # This will draw an "invisible" line along the x axis
+      plot 0 lt bgnd
 4 linecolor variable
 ?linecolor variable
 ?lc variable
@@ -3063,11 +3081,11 @@ Ffigure_candlesticks
  If you set the fillstyle to solid or pattern, then this will be used for
  all boxes independent of open and close values.
  See also `set bars` and `financebars`.  See also the
-^ <a href="http://gnuplot.sourceforge.net/demo/candlesticks.html">
+^ <a href="http://www.gnuplot.info/demo/candlesticks.html">
  candlestick
 ^ </a>
  and
-^ <a href="http://gnuplot.sourceforge.net/demo/finance.html">
+^ <a href="http://www.gnuplot.info/demo/finance.html">
  finance 
 ^ </a>
  demos.
@@ -5390,7 +5408,7 @@ Ffigure_mapcontours
  Non-parametric splot demos
 ^ </a>
  , and
-^ <a href="http://gnuplot.sourceforge.net/demo/surface2.html">
+^ <a href="http://www.gnuplot.info/demo/surface2.html">
  Parametric splot demos
 ^ </a>
  .
@@ -6074,7 +6092,7 @@ Ffigure_mapcontours
  If autoscaling is on, the ranges will be adjusted to include the error bars.
 
  See also
-^ <a href="http://gnuplot.sourceforge.net/demo/mgr.html">
+^ <a href="http://www.gnuplot.info/demo/mgr.html">
  errorbar demos.
 ^ </a>
 
@@ -6877,7 +6895,7 @@ Ffigure_mapcontours
  To show all arrows (in tag order), use:
        show arrow
 
-^ <a href="http://gnuplot.sourceforge.net/demo/arrowstyle.html">
+^ <a href="http://www.gnuplot.info/demo/arrowstyle.html">
  arrows demos.
 ^ </a>
 
@@ -9482,7 +9500,7 @@ Ffigure_mapcontours
  size of 0.9/3.
 
  See also
-^ <a href="http://gnuplot.sourceforge.net/demo/multiplt.html">
+^ <a href="http://www.gnuplot.info/demo/multiplt.html">
  multiplot demo (multiplt.dem)
 ^ </a>
 3 mx2tics
@@ -13269,10 +13287,8 @@ Ffigure_mapcontours
  window.  This means that multiplots whose constituent plots use different
  palettes will not display correctly in x11.
 
- Qt terminal: This terminal is still in the EXPERIMENTAL category.  It does not
- yet support all the features of the other interactive terminals.  If the local
- qt environment does not support "opengl" as a rendering mode then display of
- polygons and surfaces can be very slow.
+ Qt terminal: If the local qt environment does not support "opengl" as a
+ rendering mode then display of polygons and surfaces can be very slow.
 
 2 External libraries
 ?bugs external_libraries
