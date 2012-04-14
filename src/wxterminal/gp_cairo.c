@@ -1,5 +1,5 @@
 /*
- * $Id: gp_cairo.c,v 1.60 2011/10/13 19:56:55 sfeam Exp $
+ * $Id: gp_cairo.c,v 1.62 2012/04/14 03:59:31 sfeam Exp $
  */
 
 /* GNUPLOT - gp_cairo.c */
@@ -233,14 +233,17 @@ void gp_cairo_initialize_context(plot_struct *plot)
 }
 
 
-void gp_cairo_set_color(plot_struct *plot, rgb_color color)
+void gp_cairo_set_color(plot_struct *plot, rgb_color color, double alpha)
 {
 	/*stroke any open path */
 	gp_cairo_stroke(plot);
 
 	FPRINTF((stderr,"set_color %lf %lf %lf\n",color.r, color.g, color.b));
 
-	plot->color = color;
+	plot->color.r = color.r;
+	plot->color.g = color.g;
+	plot->color.b = color.b;
+	plot->color.alpha = alpha;
 }
 
 
@@ -335,37 +338,36 @@ void gp_cairo_set_textangle(plot_struct *plot, double angle)
 	plot->text_angle =angle;
 }
 
-/* By default, Cairo uses an antialiasing algorithm which
- * will let a seam between polygons which
- * share common edges.
+/* By default, Cairo uses an antialiasing algorithm which may
+ * leave a seam between polygons which share a common edge.
  * Several solutions allow to workaround this behaviour :
  * - don't antialias the polygons
- * Problem : aliased lines are ugly
+ *   Problem : aliased lines are ugly
  * - stroke on each edge
- * Problem : stroking is a very time-consuming operation
+ *   Problem : stroking is a very time-consuming operation
  * - draw without antialiasing to a separate context of a bigger size
- * Problem : not really in the spirit of the rest of the drawing.
- * - dilatate the polygon so that they overlap slightly
- * It is really more time-consuming that it may seem. It implies dealing
- * with each corner, find on which direction to move it (making
- * the difference between the inside and the outside of the polygon).
+ *   Problem : not really in the spirit of the rest of the drawing.
+ * - enlarge the polygons so that they overlap slightly
+ *   Problem : It is really more time-consuming that it may seem.
+ *   It implies inspecting each corner to find which direction to move it
+ *   (making the difference between the inside and the outside of the polygon).
  * - using CAIRO_OPERATOR_SATURATE
- * Problem : for each set of polygons, we have to draw front-to-back
- * on a separate context and then copy back to this one.
- * Time-consuming but probably less than stroking all the edges.
+ *   Problem : for each set of polygons, we have to draw front-to-back
+ *   on a separate context and then copy back to this one.
+ *   Time-consuming but probably less than stroking all the edges.
  *
  * The last solution is implemented if plot->polygons_saturate is set to TRUE
- * Otherwise the default (antialiasing but seams) is used.
+ * Otherwise the default (antialiasing but may have seams) is used.
  */
 
 void gp_cairo_draw_polygon(plot_struct *plot, int n, gpiPoint *corners)
 {
+	/* begin by stroking any open path */
+	gp_cairo_stroke(plot);
+	
 	if (plot->polygons_saturate) {
 		int i;
 		path_item *path;
-	
-		/* begin by stroking any open path */
-		gp_cairo_stroke(plot);
 	
 		path = (path_item*) gp_alloc(sizeof(path_item), "gp_cairo : polygon path");
 	
@@ -404,7 +406,7 @@ void gp_cairo_end_polygon(plot_struct *plot)
 	int i;
 	path_item *path;
 	path_item *path2;
-	rgb_color color_sav;
+	rgba_color color_sav;
 	cairo_t *context;
 	cairo_t *context_sav;
 	cairo_surface_t *surface;
@@ -557,7 +559,8 @@ void gp_cairo_stroke(plot_struct *plot)
 		cairo_set_dash(plot->cr, dashes, 8 /*num_dashes*/, 0 /*offset*/);
 	}
 
-	cairo_set_source_rgb(plot->cr, plot->color.r, plot->color.g, plot->color.b);
+	cairo_set_source_rgba(plot->cr, plot->color.r, plot->color.g, plot->color.b,
+				1. - plot->color.alpha);
 	cairo_set_line_width(plot->cr, lw);
 
 	cairo_stroke(plot->cr);
@@ -828,7 +831,8 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string)
 #endif /* helper point */
 
 	cairo_save (plot->cr);
-	cairo_set_source_rgb(plot->cr, plot->color.r, plot->color.g, plot->color.b);
+	cairo_set_source_rgba(plot->cr, plot->color.r, plot->color.g, plot->color.b,
+				1. - plot->color.alpha);
 	cairo_move_to (plot->cr, x-0.5, y-0.5);
 	cairo_rotate(plot->cr, -arg);
 
@@ -908,11 +912,14 @@ void gp_cairo_draw_point(plot_struct *plot, int x1, int y1, int style)
 
 	cairo_save(plot->cr);
 	cairo_set_line_width(plot->cr, plot->linewidth*plot->oversampling_scale);
-	cairo_set_source_rgb(plot->cr, plot->color.r, plot->color.g, plot->color.b);
+	cairo_set_source_rgba(plot->cr, plot->color.r, plot->color.g, plot->color.b,
+				1. - plot->color.alpha);
 
-	/* always draw a dot. Nothing more is needed for style=-1 */
-	cairo_arc (plot->cr, x, y, 0.5*plot->oversampling_scale, 0, 2*M_PI);
-	cairo_fill (plot->cr);
+	/* Dot	FIXME: because this is drawn as a filled circle, it's quite slow */
+	if (style < 0) {
+		cairo_arc (plot->cr, x, y, 0.5*plot->oversampling_scale, 0, 2*M_PI);
+		cairo_fill (plot->cr);
+	}
 
 	switch (style%13) {
 	case 0: /* plus */
@@ -1509,7 +1516,8 @@ void gp_cairo_enhanced_finish(plot_struct *plot, int x, int y)
 	/* angle in radians */
 	cairo_rotate(plot->cr, -arg);
 
-	cairo_set_source_rgb(plot->cr, plot->color.r, plot->color.g, plot->color.b);
+	cairo_set_source_rgba(plot->cr, plot->color.r, plot->color.g, plot->color.b,
+				1. - plot->color.alpha);
 	/* Inform Pango to re-layout the text with the new transformation */
 	pango_cairo_update_layout (plot->cr, layout);
 	pango_cairo_show_layout (plot->cr, layout);
@@ -1532,31 +1540,36 @@ void gp_cairo_fill(plot_struct *plot, int fillstyle, int fillpar)
 	double red = 0, green = 0, blue = 0, fact = 0;
 
 	switch (fillstyle) {
+	case FS_SOLID: /* solid fill */
+		if (plot->color.alpha > 0) {
+			fillpar = 100. * (1. - plot->color.alpha);
+			/* Fall through to FS_TRANSPARENT_SOLID */
+		} else if (fillpar==100)
+			/* treated as a special case to accelerate common situation */ {
+			cairo_set_source_rgb(plot->cr, plot->color.r, plot->color.g, plot->color.b);
+			FPRINTF((stderr,"solid %lf %lf %lf\n",plot->color.r, plot->color.g, plot->color.b));
+			return;
+		} else {
+			red   = plot->color.r;
+			green = plot->color.g;
+			blue  = plot->color.b;
+
+			fact = (double)(100 - fillpar) /100;
+			
+			if (fact >= 0 && fact <= 1) {
+				red   += (1 - red) * fact;
+				green += (1 - green) * fact;
+				blue  += (1 - blue) * fact;
+			}
+			cairo_set_source_rgb(plot->cr, red, green, blue);
+			FPRINTF((stderr,"transparent solid %lf %lf %lf\n",red, green, blue));
+			return;
+		}
 	case FS_TRANSPARENT_SOLID:
 		red   = plot->color.r;
 		green = plot->color.g;
 		blue  = plot->color.b;
 		cairo_set_source_rgba(plot->cr, red, green, blue, (double)fillpar/100.);
-		return;
-	case FS_SOLID: /* solid fill */
-		if (fillpar==100) /* treated as a special case to accelerate common situation */ {
-			cairo_set_source_rgb(plot->cr, plot->color.r, plot->color.g, plot->color.b);
-			FPRINTF((stderr,"solid %lf %lf %lf\n",plot->color.r, plot->color.g, plot->color.b));
-			return;
-		}
-		red   = plot->color.r;
-		green = plot->color.g;
-		blue  = plot->color.b;
-
-		fact = (double)(100 - fillpar) /100;
-		
-		if (fact >= 0 && fact <= 1) {
-			red   += (1 - red) * fact;
-			green += (1 - green) * fact;
-			blue  += (1 - blue) * fact;
-		}
-		cairo_set_source_rgb(plot->cr, red, green, blue);
-		FPRINTF((stderr,"transparent solid %lf %lf %lf\n",red, green, blue));
 		return;
 	case FS_PATTERN: /* pattern fill */
 	case FS_TRANSPARENT_PATTERN:
