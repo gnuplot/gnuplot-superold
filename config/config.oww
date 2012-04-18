@@ -5,9 +5,6 @@
  */
 
 
-/* Define to allow use of deprecated syntax and terminal behaviour. */
-/* #undef BACKWARDS_COMPATIBLE */
-
 /* Define if you want to use the CGI terminal under SCO. */
 /* #undef CGI */
 
@@ -432,8 +429,9 @@
 /* Define if this is an MSDOS system. */
 /* #undef MSDOS */
 
-/* Define if you do not want to read .gnuplot in the current directory. */
-/* #undef NOCWDRC */
+/* Define if you want to read .gnuplot from current directory
+   (SECURITY RISK!). */
+/* #undef USE_CWDRC */
 
 /* Define to disable terminals that depend on code in bitmap.c */
 /* #undef NO_BITMAP_SUPPORT */
